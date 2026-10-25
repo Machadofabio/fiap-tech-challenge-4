@@ -1,0 +1,326 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Infraestrutura dos serviços de avaliação, notificação e relatório (BE-03/04, INF-03/04/07).
+
+Parameters:
+  AdminEmail:
+    Type: String
+    Description: Destinatário administrativo aprovado para alertas e relatórios.
+  SesFromEmail:
+    Type: String
+    Description: Identidade de remetente verificada no SES na região da stack.
+  AvaliacoesTableName:
+    Type: String
+    Default: avaliacoes
+  NotificationStateTableName:
+    Type: String
+    Default: notificacoes-avaliacoes
+  ReportGenerationTableName:
+    Type: String
+    Default: geracoes-relatorios
+  FailureQueueRetentionSeconds:
+    Type: Number
+    Default: 1209600
+    MinValue: 60
+    MaxValue: 1209600
+    Description: Retenção da fila SQS de falhas, entre 60 segundos e 14 dias.
+  ReportScheduleExpression:
+    Type: String
+    Default: cron(0 8 ? * MON *)
+    Description: Agendamento semanal do relatório (EventBridge Scheduler).
+
+Resources:
+  AvaliacoesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref AvaliacoesTableName
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      StreamSpecification:
+        StreamViewType: NEW_IMAGE
+
+  NotificationStateTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Ref NotificationStateTableName
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: eventId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: eventId
+          KeyType: HASH
+
+  NotificationFailureQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: notificar-avaliacao-critica-falhas
+      MessageRetentionPeriod: !Ref FailureQueueRetentionSeconds
+
+  ReportScheduleDeliveryFailureQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: gerar-relatorio-agendamento-falhas
+      MessageRetentionPeriod: !Ref FailureQueueRetentionSeconds
+
+  ReportExecutionFailureQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: gerar-relatorio-execucao-falhas
+      MessageRetentionPeriod: !Ref FailureQueueRetentionSeconds
+
+  ReportGenerationStateTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Ref ReportGenerationTableName
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: generationId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: generationId
+          KeyType: HASH
+
+  ReportsBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  NotificationExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ReadEvaluationStream
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:DescribeStream
+                  - dynamodb:GetRecords
+                  - dynamodb:GetShardIterator
+                  - dynamodb:ListStreams
+                Resource: !GetAtt AvaliacoesTable.StreamArn
+        - PolicyName: TrackNotificationAndSendAlert
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                Resource: !GetAtt NotificationStateTable.Arn
+              - Effect: Allow
+                Action: ses:SendEmail
+                Resource: !Sub arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${SesFromEmail}
+              - Effect: Allow
+                Action: sqs:SendMessage
+                Resource: !GetAtt NotificationFailureQueue.Arn
+
+  CriticalEvaluationNotifier:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: notificar-avaliacao-critica
+      CodeUri: build/notificar-avaliacao-critica/function.zip
+      Handler: io.quarkus.amazon.lambda.runtime.QuarkusStreamHandler::handleRequest
+      Runtime: java25
+      Architectures:
+        - x86_64
+      MemorySize: 512
+      Timeout: 30
+      Role: !GetAtt NotificationExecutionRole.Arn
+      Environment:
+        Variables:
+          AWS_REGION: !Ref AWS::Region
+          NOTIFICATION_TABLE: !Ref NotificationStateTable
+          SES_FROM_EMAIL: !Ref SesFromEmail
+          ADMIN_EMAIL: !Ref AdminEmail
+          ALERT_PROCESSING_LEASE_SECONDS: '300'
+      Events:
+        EvaluationInsert:
+          Type: DynamoDB
+          Properties:
+            Stream: !GetAtt AvaliacoesTable.StreamArn
+            StartingPosition: LATEST
+            BatchSize: 1
+            MaximumBatchingWindowInSeconds: 0
+            MaximumRetryAttempts: 3
+            MaximumRecordAgeInSeconds: 86400
+            ParallelizationFactor: 1
+            FilterCriteria:
+              Filters:
+                - Pattern: '{"eventName":["INSERT"]}'
+            DestinationConfig:
+              OnFailure:
+                Destination: !GetAtt NotificationFailureQueue.Arn
+
+  ReportExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ReadEvaluationsAndTrackReport
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: dynamodb:Scan
+                Resource: !GetAtt AvaliacoesTable.Arn
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                Resource: !GetAtt ReportGenerationStateTable.Arn
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: !Sub '${ReportsBucket.Arn}/*'
+              - Effect: Allow
+                Action: ses:SendEmail
+                Resource: !Sub arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${SesFromEmail}
+              - Effect: Allow
+                Action: sqs:SendMessage
+                Resource: !GetAtt ReportExecutionFailureQueue.Arn
+
+  ReportScheduleRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: scheduler.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: InvokeWeeklyReportAndRecordDeliveryFailure
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:gerar-relatorio-semanal
+              - Effect: Allow
+                Action: sqs:SendMessage
+                Resource: !GetAtt ReportScheduleDeliveryFailureQueue.Arn
+
+  WeeklyReportGenerator:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: gerar-relatorio-semanal
+      CodeUri: build/gerar-relatorio-semanal/function.zip
+      Handler: io.quarkus.amazon.lambda.runtime.QuarkusStreamHandler::handleRequest
+      Runtime: java25
+      Architectures:
+        - x86_64
+      MemorySize: 1024
+      Timeout: 180
+      Role: !GetAtt ReportExecutionRole.Arn
+      Environment:
+        Variables:
+          AWS_REGION: !Ref AWS::Region
+          AVALIACOES_TABLE: !Ref AvaliacoesTable
+          REPORT_GENERATION_TABLE: !Ref ReportGenerationStateTable
+          REPORTS_BUCKET: !Ref ReportsBucket
+          SES_FROM_EMAIL: !Ref SesFromEmail
+          ADMIN_EMAIL: !Ref AdminEmail
+          REPORT_TIME_ZONE: America/Sao_Paulo
+          REPORT_PROCESSING_LEASE_SECONDS: '300'
+      EventInvokeConfig:
+        MaximumEventAgeInSeconds: 3600
+        MaximumRetryAttempts: 2
+        DestinationConfig:
+          OnFailure:
+            Type: SQS
+            Destination: !GetAtt ReportExecutionFailureQueue.Arn
+      Events:
+        WeeklySchedule:
+          Type: ScheduleV2
+          Properties:
+            Name: gerar-relatorio-semanal
+            Description: Gera e envia o relatório da semana anterior toda segunda-feira.
+            ScheduleExpression: !Ref ReportScheduleExpression
+            ScheduleExpressionTimezone: America/Sao_Paulo
+            FlexibleTimeWindow:
+              Mode: OFF
+            State: ENABLED
+            RoleArn: !GetAtt ReportScheduleRole.Arn
+            Input: '{"tipo":"SEMANAL","dataReferencia":"<aws.scheduler.scheduled-time>"}'
+            RetryPolicy:
+              MaximumEventAgeInSeconds: 3600
+              MaximumRetryAttempts: 3
+            DeadLetterConfig:
+              Type: SQS
+              Arn: !GetAtt ReportScheduleDeliveryFailureQueue.Arn
+
+  SesSenderIdentity:
+    Type: AWS::SES::EmailIdentity
+    Properties:
+      EmailIdentity: !Ref SesFromEmail
+
+  SesAdminIdentity:
+    Type: AWS::SES::EmailIdentity
+    Properties:
+      EmailIdentity: !Ref AdminEmail
+
+Outputs:
+  NotificationFailureQueueUrl:
+    Description: Fila com metadados de invocações do Stream descartadas após esgotar tentativas.
+    Value: !Ref NotificationFailureQueue
+  NotificationFailureQueueArn:
+    Value: !GetAtt NotificationFailureQueue.Arn
+  EvaluationStreamArn:
+    Value: !GetAtt AvaliacoesTable.StreamArn
+  CriticalEvaluationNotifierArn:
+    Value: !GetAtt CriticalEvaluationNotifier.Arn
+  WeeklyReportGeneratorArn:
+    Value: !GetAtt WeeklyReportGenerator.Arn
+  WeeklyReportGeneratorName:
+    Value: !Ref WeeklyReportGenerator
+  ReportsBucketName:
+    Value: !Ref ReportsBucket
+  ReportScheduleDeliveryFailureQueueUrl:
+    Description: Fila para falhas de entrega do EventBridge Scheduler à Lambda.
+    Value: !Ref ReportScheduleDeliveryFailureQueue
+  ReportExecutionFailureQueueUrl:
+    Description: Fila para invocações entregues cuja Lambda falhou após as tentativas assíncronas.
+    Value: !Ref ReportExecutionFailureQueue
