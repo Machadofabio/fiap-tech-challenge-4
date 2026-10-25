@@ -1,0 +1,143 @@
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-5174}:5173"
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+      VITE_API_MODE: ${VITE_API_MODE:-http}
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:${BACKEND_PORT:-8080}}
+
+  localstack:
+    profiles: ["aws"]
+    image: localstack/localstack:latest
+    ports:
+      - "127.0.0.1:4566:4566"
+    environment:
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: us-east-1
+      LOCALSTACK_AUTH_TOKEN: ${LOCALSTACK_AUTH_TOKEN:-}
+      NOTIFICATION_TABLE: notificacoes-avaliacoes
+      SES_FROM_EMAIL: ${SES_FROM_EMAIL:-alertas@example.com}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      FAILURE_QUEUE_NAME: notificar-avaliacao-critica-falhas
+      FAILURE_QUEUE_RETENTION_SECONDS: ${FAILURE_QUEUE_RETENTION_SECONDS:-1209600}
+      REPORT_SCHEDULE_FAILURE_QUEUE_NAME: gerar-relatorio-agendamento-falhas
+      REPORT_EXECUTION_FAILURE_QUEUE_NAME: gerar-relatorio-execucao-falhas
+      REPORT_GENERATION_TABLE: ${REPORT_GENERATION_TABLE:-geracoes-relatorios}
+      REPORTS_BUCKET: ${REPORTS_BUCKET:-fiap-feedback-relatorios-local}
+      SERVICES: apigateway,dynamodb,events,iam,lambda,logs,s3,scheduler,ses,sqs
+      LAMBDA_DOCKER_NETWORK: ${COMPOSE_PROJECT_NAME:-fiap-tech-challenge-4}_default
+      PERSISTENCE: "1"
+    volumes:
+      - localstack_data:/var/lib/localstack
+      - ./localstack/init/ready.d:/etc/localstack/init/ready.d:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4566/_localstack/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  backend:
+    profiles: ["aws"]
+    build:
+      context: .
+      dockerfile: receber-avaliacao/Dockerfile
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-8080}:8080"
+    volumes:
+      - ./build.gradle:/workspace/build.gradle:ro
+      - ./settings.gradle:/workspace/settings.gradle:ro
+      - ./gradlew:/workspace/gradlew:ro
+      - ./gradle:/workspace/gradle:ro
+      - ./receber-avaliacao:/workspace/receber-avaliacao
+      - gradle_cache:/root/.gradle
+    environment:
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_DEFAULT_REGION: ${AWS_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      DYNAMODB_ENDPOINT: http://localstack:4566
+      AVALIACOES_TABLE: avaliacoes
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:${FRONTEND_PORT:-5174}}
+    depends_on:
+      localstack:
+        condition: service_healthy
+
+  notifier:
+    profiles: ["aws"]
+    build:
+      context: .
+      dockerfile: notificar-avaliacao-critica/Dockerfile
+    ports:
+      - "127.0.0.1:${NOTIFIER_PORT:-8082}:8080"
+    volumes:
+      - ./build.gradle:/workspace/build.gradle:ro
+      - ./settings.gradle:/workspace/settings.gradle:ro
+      - ./gradlew:/workspace/gradlew:ro
+      - ./gradle:/workspace/gradle:ro
+      - ./notificar-avaliacao-critica:/workspace/notificar-avaliacao-critica
+      - notifier_gradle_cache:/root/.gradle
+    environment:
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_DEFAULT_REGION: ${AWS_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      DYNAMODB_ENDPOINT: http://localstack:4566
+      SES_ENDPOINT: http://localstack:4566
+      NOTIFICATION_TABLE: notificacoes-avaliacoes
+      SES_FROM_EMAIL: ${SES_FROM_EMAIL:-alertas@example.com}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      FAILURE_QUEUE_NAME: notificar-avaliacao-critica-falhas
+      ALERT_PROCESSING_LEASE_SECONDS: ${ALERT_PROCESSING_LEASE_SECONDS:-300}
+    depends_on:
+      localstack:
+        condition: service_healthy
+
+  reporter:
+    profiles: ["aws"]
+    build:
+      context: .
+      dockerfile: gerar-relatorio-semanal/Dockerfile
+    ports:
+      - "127.0.0.1:${REPORT_PORT:-8083}:8080"
+    volumes:
+      - ./build.gradle:/workspace/build.gradle:ro
+      - ./settings.gradle:/workspace/settings.gradle:ro
+      - ./gradlew:/workspace/gradlew:ro
+      - ./gradle:/workspace/gradle:ro
+      - ./gerar-relatorio-semanal:/workspace/gerar-relatorio-semanal
+      - report_gradle_cache:/root/.gradle
+    environment:
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_DEFAULT_REGION: ${AWS_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      DYNAMODB_ENDPOINT: http://localstack:4566
+      AVALIACOES_TABLE: avaliacoes
+      REPORT_GENERATION_TABLE: ${REPORT_GENERATION_TABLE:-geracoes-relatorios}
+      S3_ENDPOINT: http://localstack:4566
+      REPORTS_BUCKET: ${REPORTS_BUCKET:-fiap-feedback-relatorios-local}
+      SES_ENDPOINT: http://localstack:4566
+      SES_FROM_EMAIL: ${SES_FROM_EMAIL:-alertas@example.com}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      REPORT_PROCESSING_LEASE_SECONDS: ${REPORT_PROCESSING_LEASE_SECONDS:-300}
+      REPORT_TIME_ZONE: ${REPORT_TIME_ZONE:-America/Sao_Paulo}
+    depends_on:
+      localstack:
+        condition: service_healthy
+
+volumes:
+  gradle_cache:
+  notifier_gradle_cache:
+  report_gradle_cache:
+  frontend_node_modules:
+  localstack_data:

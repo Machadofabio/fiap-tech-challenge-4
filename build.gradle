@@ -1,0 +1,27 @@
+plugins {
+    id 'base'
+}
+
+ext {
+    quarkusPlatformGroupId = 'io.quarkus.platform'
+    quarkusPlatformVersion = '3.31.4'
+    awsSdkVersion = '2.55.13'
+}
+
+allprojects {
+    group = 'com.fiap.feedback'
+    version = '1.0.0-SNAPSHOT'
+    repositories {
+        mavenCentral()
+    }
+}
+
+subprojects {
+    apply plugin: 'java'
+
+    java {
+        toolchain {
+            languageVersion = JavaLanguageVersion.of(25)
+        }
+    }
+}

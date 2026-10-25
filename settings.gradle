@@ -1,0 +1,14 @@
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        mavenCentral()
+    }
+    plugins {
+        id 'io.quarkus' version '3.31.4'
+    }
+}
+
+rootProject.name = 'fiap-tech-challenge-4'
+include 'receber-avaliacao'
+include 'notificar-avaliacao-critica'
+include 'gerar-relatorio-semanal'
