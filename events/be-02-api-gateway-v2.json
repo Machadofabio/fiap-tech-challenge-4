@@ -1,0 +1,30 @@
+{
+  "version": "2.0",
+  "routeKey": "POST /avaliacao",
+  "rawPath": "/avaliacao",
+  "rawQueryString": "",
+  "headers": {
+    "content-type": "application/json",
+    "idempotency-key": "2f1e8e77-967d-4eeb-b7b7-5ab3be62bb39"
+  },
+  "requestContext": {
+    "accountId": "000000000000",
+    "apiId": "local",
+    "domainName": "localhost",
+    "domainPrefix": "local",
+    "http": {
+      "method": "POST",
+      "path": "/avaliacao",
+      "protocol": "HTTP/1.1",
+      "sourceIp": "127.0.0.1",
+      "userAgent": "curl"
+    },
+    "requestId": "local-request",
+    "routeKey": "POST /avaliacao",
+    "stage": "$default",
+    "time": "22/Oct/2026:12:00:00 +0000",
+    "timeEpoch": 1792670400000
+  },
+  "body": "{\"descricao\":\"A explicação foi clara e os exemplos ajudaram.\",\"nota\":8}",
+  "isBase64Encoded": false
+}
