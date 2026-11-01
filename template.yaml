@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: Infraestrutura dos serviços de avaliação, notificação e relatório (BE-03/04, INF-03/04/07).
+Description: Plataforma de avaliações, alertas e relatórios na AWS.
 
 Parameters:
   AdminEmail:
@@ -104,6 +104,151 @@ Resources:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
               SSEAlgorithm: AES256
+
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  FrontendOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub '${AWS::StackName}-frontend-oac'
+        Description: Acesso privado do CloudFront aos arquivos estáticos do frontend.
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  FrontendDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub '${AWS::StackName} frontend'
+        DefaultRootObject: index.html
+        HttpVersion: http2
+        PriceClass: PriceClass_100
+        Origins:
+          - Id: StaticFrontendOrigin
+            DomainName: !GetAtt FrontendBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt FrontendOriginAccessControl.Id
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+        DefaultCacheBehavior:
+          TargetOriginId: StaticFrontendOrigin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods:
+            - GET
+            - HEAD
+          CachedMethods:
+            - GET
+            - HEAD
+          Compress: true
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+          MinTTL: 0
+          DefaultTTL: 300
+          MaxTTL: 86400
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+        Restrictions:
+          GeoRestriction:
+            RestrictionType: none
+
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowCloudFrontReadOnly
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub '${FrontendBucket.Arn}/*'
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${FrontendDistribution}'
+
+  EvaluationsHttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: '$default'
+      CorsConfiguration:
+        AllowOrigins:
+          - !Sub 'https://${FrontendDistribution.DomainName}'
+        AllowHeaders:
+          - Content-Type
+          - Idempotency-Key
+        AllowMethods:
+          - OPTIONS
+          - POST
+        AllowCredentials: false
+        MaxAge: 600
+
+  ReceivingEvaluationExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: SaveAndCheckEvaluations
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                Resource: !GetAtt AvaliacoesTable.Arn
+
+  ReceivingEvaluationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: receber-avaliacao
+      CodeUri: build/receber-avaliacao/function.zip
+      Handler: io.quarkus.amazon.lambda.runtime.QuarkusStreamHandler::handleRequest
+      Runtime: java25
+      Architectures:
+        - x86_64
+      MemorySize: 512
+      Timeout: 30
+      Role: !GetAtt ReceivingEvaluationExecutionRole.Arn
+      Environment:
+        Variables:
+          AWS_REGION: !Ref AWS::Region
+          AVALIACOES_TABLE: !Ref AvaliacoesTable
+          CORS_ORIGINS: !Sub 'https://${FrontendDistribution.DomainName}'
+      Events:
+        SubmitEvaluation:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref EvaluationsHttpApi
+            Path: /avaliacao
+            Method: POST
+            PayloadFormatVersion: '2.0'
 
   NotificationExecutionRole:
     Type: AWS::IAM::Role
@@ -303,6 +448,17 @@ Resources:
       EmailIdentity: !Ref AdminEmail
 
 Outputs:
+  EvaluationsApiUrl:
+    Description: URL HTTPS da API pública de avaliações.
+    Value: !Sub 'https://${EvaluationsHttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}'
+  FrontendBucketName:
+    Description: Bucket privado que recebe os arquivos gerados pelo build do frontend.
+    Value: !Ref FrontendBucket
+  FrontendDistributionId:
+    Value: !Ref FrontendDistribution
+  FrontendUrl:
+    Description: URL HTTPS do frontend entregue pelo CloudFront.
+    Value: !Sub 'https://${FrontendDistribution.DomainName}'
   NotificationFailureQueueUrl:
     Description: Fila com metadados de invocações do Stream descartadas após esgotar tentativas.
     Value: !Ref NotificationFailureQueue

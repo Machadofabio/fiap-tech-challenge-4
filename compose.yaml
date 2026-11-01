@@ -1,4 +1,12 @@
 services:
+  lambda-artifacts:
+    profiles: ["aws"]
+    build:
+      context: .
+      dockerfile: localstack/lambda-artifacts.Dockerfile
+    volumes:
+      - lambda_artifacts:/lambda-artifacts
+
   frontend:
     build:
       context: ./frontend
@@ -16,6 +24,10 @@ services:
   localstack:
     profiles: ["aws"]
     image: localstack/localstack:latest
+    depends_on:
+      lambda-artifacts:
+        condition: service_completed_successfully
+        restart: true
     ports:
       - "127.0.0.1:4566:4566"
     environment:
@@ -38,6 +50,7 @@ services:
     volumes:
       - localstack_data:/var/lib/localstack
       - ./localstack/init/ready.d:/etc/localstack/init/ready.d:ro
+      - lambda_artifacts:/opt/code/lambda-artifacts:ro
       - /var/run/docker.sock:/var/run/docker.sock
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4566/_localstack/health', timeout=3)"]
@@ -141,3 +154,4 @@ volumes:
   report_gradle_cache:
   frontend_node_modules:
   localstack_data:
+  lambda_artifacts:
