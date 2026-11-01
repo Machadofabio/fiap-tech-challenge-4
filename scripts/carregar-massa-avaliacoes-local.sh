@@ -7,33 +7,43 @@ cd "$ROOT"
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
   cat <<'EOF'
 Carrega avaliações determinísticas na tabela local `avaliacoes`.
-Gera 4 avaliações por dia da semana anterior e 2 registros fora dos limites.
+Gera 4 avaliações por dia, na semana anterior concluída por padrão.
 
 Uso:
   scripts/carregar-massa-avaliacoes-local.sh
+  scripts/carregar-massa-avaliacoes-local.sh --semana-atual
+
+Com --semana-atual, gera a massa de segunda-feira até domingo da semana atual.
 
 Requer o serviço `localstack` ativo no perfil `aws` do Docker Compose.
 Opcional: AVALIACOES_TABLE=nome-da-tabela
 EOF
   exit 0
 fi
+WEEK_MODE="previous"
+if [[ "${1:-}" == "--semana-atual" ]]; then
+  WEEK_MODE="current"
+  shift
+fi
 if (($#)); then
-  echo "Este script não aceita argumentos. Use --help para ver os detalhes." >&2
+  echo "Argumento desconhecido: $1" >&2
+  echo "Use --help para ver as opções." >&2
   exit 2
 fi
 
 TABLE="${AVALIACOES_TABLE:-avaliacoes}"
 
-docker compose --profile aws exec -T localstack bash -s -- "$TABLE" <<'BASH'
+docker compose --profile aws exec -T localstack bash -s -- "$TABLE" "$WEEK_MODE" <<'BASH'
 set -euo pipefail
 TABLE="$1"
+WEEK_MODE="$2"
 
 if ! awslocal dynamodb describe-table --table-name "$TABLE" >/dev/null 2>&1; then
   echo "A tabela '$TABLE' não existe. Inicie o LocalStack com: docker compose --profile aws up -d localstack" >&2
   exit 1
 fi
 
-python3 - "$TABLE" <<'PY'
+python3 - "$TABLE" "$WEEK_MODE" <<'PY'
 import json
 import subprocess
 import sys
@@ -43,12 +53,12 @@ from collections import Counter
 from datetime import datetime, time as day_time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-table = sys.argv[1]
+table, week_mode = sys.argv[1:]
 zone = ZoneInfo("America/Sao_Paulo")
 now = datetime.now(zone)
 monday_this_week = now.date() - timedelta(days=now.weekday())
-week_start = monday_this_week - timedelta(days=7)
-week_end = monday_this_week - timedelta(days=1)
+week_start = monday_this_week if week_mode == "current" else monday_this_week - timedelta(days=7)
+week_end = week_start + timedelta(days=6)
 
 score_patterns = [
     [0, 4, 7, 10],

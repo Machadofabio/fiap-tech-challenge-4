@@ -70,8 +70,10 @@ Avaliações com nota de 0 a 4 e urgência crítica enviam um e-mail simulado pe
 O remetente e o destinatário são definidos pelas variáveis `SES_FROM_EMAIL` e `ADMIN_EMAIL` no `.env`. Para consultar e-mails aceitos pelo LocalStack:
 
 ```bash
-curl 'http://localhost:4566/_aws/ses?email=admin@example.com'
+curl 'http://localhost:4566/_aws/ses?email=alertas@example.com'
 ```
+
+O filtro `email` procura o remetente (`SES_FROM_EMAIL`), não o destinatário. Sem o parâmetro `email`, o endpoint lista todas as mensagens.
 
 Se o processamento falhar, os detalhes ficam na fila SQS de falhas. O script abaixo tenta recuperar e processar novamente o registro original:
 
@@ -81,29 +83,37 @@ Se o processamento falhar, os detalhes ficam na fila SQS de falhas. O script aba
 
 ## Relatórios
 
-O relatório semanal considera a semana anterior completa, de segunda a domingo, no fuso `America/Sao_Paulo`. Ele gera um CSV no bucket S3 local e envia um resumo pelo SES. Também é possível pedir um relatório para um intervalo de datas.
+O relatório semanal considera a última semana completa, de segunda a domingo, no fuso `America/Sao_Paulo`. Ele gera um CSV no bucket S3 local e envia um resumo pelo SES. Para um intervalo escolhido, use o relatório manual.
 
-Para preparar dados de exemplo e gerar um relatório manualmente:
+Para incluir a semana atual no relatório manual, execute os comandos nesta ordem. O primeiro inicia o LocalStack; o segundo carrega 4 avaliações por dia e 2 registros de borda; o terceiro gera o CSV e envia o resumo pelo SES:
 
 ```bash
-./scripts/carregar-massa-avaliacoes-local.sh
+docker compose --profile aws up -d localstack
+./scripts/carregar-massa-avaliacoes-local.sh --semana-atual
 docker compose --profile aws up -d reporter
-./scripts/disparar-relatorio-local.sh --semanal
+./scripts/disparar-relatorio-local.sh --manual \
+  --inicio 2026-10-26 --fim 2026-11-01
 ```
+
+As datas `2026-10-26` e `2026-11-01` são o intervalo da semana atual neste exemplo; ajuste-as para a segunda e o domingo da semana que deseja consultar. A resposta do script mostra o status, a quantidade de avaliações e a chave do CSV criado. Para gerar dados da última semana completa, omitindo a opção `--semana-atual`, e produzir o relatório semanal automaticamente, use `./scripts/carregar-massa-avaliacoes-local.sh` seguido de `./scripts/disparar-relatorio-local.sh --semanal`.
 
 Para gerar um relatório de datas específicas:
 
 ```bash
 ./scripts/disparar-relatorio-local.sh --manual \
-  --inicio 2026-10-01 --fim 2026-10-07 --id local-manual-001
+  --inicio 2026-10-01 --fim 2026-10-07
 ```
 
-Consulte os arquivos e e-mails gerados:
+Sem `--id`, o script cria um identificador novo a cada execução. Se você informar o mesmo `--id` de um relatório já concluído, a solicitação repetida não gera outro e-mail. Para testar novamente com um ID manual, use um valor diferente, por exemplo `--id local-manual-002`.
+
+Depois que o relatório terminar, estes comandos mostram onde conferir os resultados:
 
 ```bash
-aws --endpoint-url http://localhost:4566 s3 ls s3://fiap-feedback-relatorios-local/ --recursive
-curl 'http://localhost:4566/_aws/ses?email=admin@example.com'
+docker compose exec localstack awslocal s3 ls s3://fiap-feedback-relatorios-local/ --recursive
+curl 'http://localhost:4566/_aws/ses?email=alertas@example.com'
 ```
+
+O primeiro comando lista os arquivos CSV guardados no S3 simulado pelo LocalStack. O segundo mostra os e-mails enviados pelo remetente `alertas@example.com` para `admin@example.com`. Nesse endpoint do LocalStack, o parâmetro `email` filtra pelo remetente (`SES_FROM_EMAIL`), não pelo destinatário (`ADMIN_EMAIL`). Se quiser listar todos os e-mails, remova `?email=alertas@example.com` da URL.
 
 ## Agendamento semanal
 
