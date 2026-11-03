@@ -134,23 +134,6 @@ O Scheduler e a Lambda têm políticas de tentativas separadas. Falhas ao entreg
 
 ## Publicação na AWS
 
-O `template.yaml` cria a API HTTP pública, as três Lambdas, recursos de dados, alertas, relatórios e agenda. Também cria um bucket privado para os arquivos do frontend e uma distribuição CloudFront com HTTPS. O endereço do frontend só fica disponível depois do deploy; a origem S3 permanece privada.
+O workflow [Deploy AWS](.github/workflows/deploy-aws.yml) compila as Lambdas e usa `sam deploy` para criar ou atualizar a stack definida em `template.yaml`; depois publica o frontend no S3 e CloudFront da stack. Ele roda em push para `main` ou pode ser iniciado manualmente em **Actions → Deploy AWS → Run workflow**.
 
-Com AWS CLI, SAM CLI, Node.js/npm e Gradle configurados, compile as Lambdas e publique a stack. Informe endereços válidos para o remetente e o administrador; o remetente precisa estar verificado no SES:
-
-```bash
-./gradlew --no-daemon \
-  :receber-avaliacao:quarkusBuild \
-  :notificar-avaliacao-critica:quarkusBuild \
-  :gerar-relatorio-semanal:quarkusBuild
-sam deploy --guided --parameter-overrides \
-  AdminEmail=admin@example.com SesFromEmail=alertas@example.com
-```
-
-Depois do deploy, publique os arquivos do frontend no bucket da stack. O script busca os endereços de API, bucket e distribuição nas saídas do CloudFormation, compila o Vite com a URL correta e invalida o cache do CloudFront:
-
-```bash
-./scripts/publicar-frontend-aws.sh NOME_DA_STACK
-```
-
-O frontend será servido pela saída `FrontendUrl`; a API está disponível na saída `EvaluationsApiUrl`. O disparo manual do relatório pelo GitHub Actions usa OIDC. As políticas de referência e as instruções de configuração estão em [`docs/infra`](docs/infra/); a role e o provedor OIDC precisam estar configurados na AWS e no GitHub.
+Como os recursos existentes foram criados manualmente, eles não serão adotados automaticamente pela stack. Recursos com nomes iguais aos do template podem causar conflito; outros podem ser criados em duplicidade. O passo a passo de OIDC, variáveis do GitHub e essa observação estão em [`docs/infra/github-actions-deploy.md`](docs/infra/github-actions-deploy.md). O workflow usa credenciais temporárias via OIDC; não precisa de access key nem secret key.
