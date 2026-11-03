@@ -434,7 +434,6 @@ Resources:
               MaximumEventAgeInSeconds: 3600
               MaximumRetryAttempts: 3
             DeadLetterConfig:
-              Type: SQS
               Arn: !GetAtt ReportScheduleDeliveryFailureQueue.Arn
 
   SesSenderIdentity:
