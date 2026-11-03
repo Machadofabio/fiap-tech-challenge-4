@@ -1,0 +1,90 @@
+name: Deploy AWS
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: aws-deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build and deploy SAM stack and frontend
+    runs-on: ubuntu-latest
+    environment: dev
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_STACK_NAME: ${{ vars.AWS_STACK_NAME }}
+      AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+      ADMIN_EMAIL: ${{ vars.ADMIN_EMAIL }}
+      SES_FROM_EMAIL: ${{ vars.SES_FROM_EMAIL }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: gradle
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Set up AWS SAM CLI
+        uses: aws-actions/setup-sam@v3
+        with:
+          use-installer: true
+
+      - name: Check required deployment settings
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in AWS_DEPLOY_ROLE_ARN AWS_REGION AWS_STACK_NAME ADMIN_EMAIL SES_FROM_EMAIL; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "Configure $name as a variable in the GitHub environment dev." >&2
+              exit 1
+            fi
+          done
+
+      - name: Configure AWS credentials with OIDC
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          role-session-name: github-actions-${{ github.run_id }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Build Lambda packages
+        run: |
+          ./gradlew --no-daemon \
+            :receber-avaliacao:quarkusBuild \
+            :notificar-avaliacao-critica:quarkusBuild \
+            :gerar-relatorio-semanal:quarkusBuild
+
+      - name: Deploy SAM stack
+        run: |
+          sam deploy \
+            --template-file template.yaml \
+            --stack-name "$AWS_STACK_NAME" \
+            --region "$AWS_REGION" \
+            --resolve-s3 \
+            --capabilities CAPABILITY_IAM \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset \
+            --parameter-overrides \
+              "AdminEmail=$ADMIN_EMAIL" \
+              "SesFromEmail=$SES_FROM_EMAIL"
+
+      - name: Publish frontend to S3 and invalidate CloudFront
+        run: ./scripts/publicar-frontend-aws.sh "$AWS_STACK_NAME"

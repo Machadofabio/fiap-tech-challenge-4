@@ -1,0 +1,18 @@
+plugins {
+    id 'io.quarkus'
+}
+
+// Keep host build artifacts outside the bind-mounted module tree used by Docker dev mode.
+layout.buildDirectory.set(rootProject.layout.buildDirectory.dir(project.name))
+
+dependencies {
+    implementation enforcedPlatform("${rootProject.ext.quarkusPlatformGroupId}:quarkus-bom:${rootProject.ext.quarkusPlatformVersion}")
+    implementation platform("software.amazon.awssdk:bom:${rootProject.ext.awsSdkVersion}")
+
+    implementation 'io.quarkus:quarkus-amazon-lambda'
+    implementation 'io.quarkus:quarkus-arc'
+    implementation 'software.amazon.awssdk:dynamodb'
+    implementation 'software.amazon.awssdk:ses'
+    implementation 'software.amazon.awssdk:url-connection-client'
+    implementation 'com.amazonaws:aws-lambda-java-events:3.16.1'
+}

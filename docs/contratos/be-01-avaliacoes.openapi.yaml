@@ -1,0 +1,213 @@
+openapi: 3.0.3
+info:
+  title: API de avaliações de aulas
+  version: 1.0.0
+  description: >-
+    Contrato do envio anônimo de avaliações. A implementação deve aplicar as
+    regras de normalização, idempotência e classificação descritas em
+    be-01-avaliacoes.md.
+paths:
+  /avaliacao:
+    post:
+      operationId: criarAvaliacao
+      summary: Enviar uma avaliação de aula
+      description: >-
+        Cria uma avaliação ou reconhece uma tentativa já recebida. O endpoint é
+        anônimo. Uma chave já registrada sempre identifica a avaliação original,
+        mesmo quando o corpo de uma repetição é diferente.
+      security: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: >-
+            UUID criado pelo cliente para uma nova avaliação e reutilizado em
+            todas as tentativas da mesma solicitação.
+          schema:
+            type: string
+            format: uuid
+          example: 2f1e8e77-967d-4eeb-b7b7-5ab3be62bb39
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NovaAvaliacao'
+            example:
+              descricao: A explicação foi clara e os exemplos ajudaram.
+              nota: 8
+      responses:
+        '201':
+          description: Avaliação criada e persistida.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResultadoAvaliacao'
+              example:
+                resultado: criada
+                id: 2f1e8e77-967d-4eeb-b7b7-5ab3be62bb39
+                descricao: A explicação foi clara e os exemplos ajudaram.
+                nota: 8
+                urgencia: NORMAL
+                dataEnvio: '2026-10-22T14:30:00Z'
+        '200':
+          description: >-
+            A chave já foi recebida. A resposta identifica o registro original;
+            o corpo enviado nesta repetição não substitui seus dados.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResultadoAvaliacao'
+              example:
+                resultado: ja_recebida
+                id: 2f1e8e77-967d-4eeb-b7b7-5ab3be62bb39
+                descricao: A explicação foi clara e os exemplos ajudaram.
+                nota: 8
+                urgencia: NORMAL
+                dataEnvio: '2026-10-22T14:30:00Z'
+        '400':
+          description: JSON inválido ou dados fora das regras do contrato.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Erro'
+              examples:
+                validacao:
+                  summary: Campo inválido
+                  value:
+                    codigo: DADOS_INVALIDOS
+                    mensagem: Confira os dados informados.
+                    campos:
+                      - campo: descricao
+                        codigo: COMPRIMENTO_INVALIDO
+                        mensagem: A descrição deve ter de 1 a 2.000 caracteres.
+                jsonInvalido:
+                  summary: Corpo não é JSON válido
+                  value:
+                    codigo: JSON_INVALIDO
+                    mensagem: O corpo da solicitação deve ser um JSON válido.
+                    campos: []
+                chaveInvalida:
+                  summary: Cabeçalho de idempotência ausente ou inválido
+                  value:
+                    codigo: CHAVE_INVALIDA
+                    mensagem: Envie Idempotency-Key com um UUID válido.
+                    campos:
+                      - campo: Idempotency-Key
+                        codigo: FORMATO_INVALIDO
+                        mensagem: Envie um UUID válido.
+        '500':
+          description: Falha interna ao processar ou persistir a avaliação.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Erro'
+              example:
+                codigo: ERRO_INTERNO
+                mensagem: Não foi possível processar a avaliação. Tente novamente.
+                campos: []
+components:
+  schemas:
+    NovaAvaliacao:
+      type: object
+      required:
+        - descricao
+        - nota
+      properties:
+        descricao:
+          type: string
+          description: >-
+            Texto obrigatório. O servidor remove espaços em branco Unicode das
+            extremidades e valida o comprimento do texto normalizado.
+          example: A explicação foi clara e os exemplos ajudaram.
+        nota:
+          type: integer
+          minimum: 0
+          maximum: 10
+          description: Nota inteira de satisfação, em que 0 é a menor e 10 a maior.
+          example: 8
+    ResultadoAvaliacao:
+      type: object
+      required:
+        - resultado
+        - id
+        - descricao
+        - nota
+        - urgencia
+        - dataEnvio
+      properties:
+        resultado:
+          type: string
+          enum:
+            - criada
+            - ja_recebida
+          description: Indica se o registro foi criado agora ou já existia.
+        id:
+          type: string
+          format: uuid
+          description: Identificador da avaliação; corresponde ao Idempotency-Key.
+        descricao:
+          type: string
+          description: Descrição normalizada e persistida.
+        nota:
+          type: integer
+          minimum: 0
+          maximum: 10
+        urgencia:
+          type: string
+          enum:
+            - CRITICA
+            - NORMAL
+          description: CRITICA para notas de 0 a 4; NORMAL para notas de 5 a 10.
+        dataEnvio:
+          type: string
+          format: date-time
+          description: Instante UTC da primeira persistência, em RFC 3339.
+          example: '2026-10-22T14:30:00Z'
+    Erro:
+      type: object
+      required:
+        - codigo
+        - mensagem
+        - campos
+      properties:
+        codigo:
+          type: string
+          enum:
+            - DADOS_INVALIDOS
+            - JSON_INVALIDO
+            - CHAVE_INVALIDA
+            - ERRO_INTERNO
+        mensagem:
+          type: string
+          description: Mensagem geral, sem detalhes internos de exceções ou infraestrutura.
+        campos:
+          type: array
+          description: >-
+            Lista vazia quando o erro não puder ser associado a um campo, como
+            em JSON inválido ou falha interna.
+          items:
+            $ref: '#/components/schemas/ErroDeCampo'
+    ErroDeCampo:
+      type: object
+      required:
+        - campo
+        - codigo
+        - mensagem
+      properties:
+        campo:
+          type: string
+          enum:
+            - descricao
+            - nota
+            - Idempotency-Key
+        codigo:
+          type: string
+          enum:
+            - OBRIGATORIO
+            - TIPO_INVALIDO
+            - COMPRIMENTO_INVALIDO
+            - FORA_DO_INTERVALO
+            - FORMATO_INVALIDO
+        mensagem:
+          type: string

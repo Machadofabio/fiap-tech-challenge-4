@@ -1,0 +1,16 @@
+plugins {
+    id 'io.quarkus'
+}
+
+// Keep generated classes outside the bind-mounted module directory used by Docker dev mode.
+layout.buildDirectory.set(rootProject.layout.buildDirectory.dir(project.name))
+
+dependencies {
+    implementation enforcedPlatform("${rootProject.ext.quarkusPlatformGroupId}:quarkus-bom:${rootProject.ext.quarkusPlatformVersion}")
+    implementation platform("software.amazon.awssdk:bom:${rootProject.ext.awsSdkVersion}")
+
+    implementation 'io.quarkus:quarkus-rest-jackson'
+    implementation 'io.quarkus:quarkus-amazon-lambda-http'
+    implementation 'software.amazon.awssdk:dynamodb'
+    implementation 'software.amazon.awssdk:url-connection-client'
+}

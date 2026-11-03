@@ -1,0 +1,26 @@
+{
+  "Records": [
+    {
+      "eventID": "local-be03-alerta-critico-001",
+      "eventName": "INSERT",
+      "eventSource": "aws:dynamodb",
+      "awsRegion": "us-east-1",
+      "dynamodb": {
+        "ApproximateCreationDateTime": 1792700000,
+        "Keys": {
+          "id": { "S": "aa6b17c2-fd31-47ec-a833-0a27f8e37ab5" }
+        },
+        "NewImage": {
+          "id": { "S": "aa6b17c2-fd31-47ec-a833-0a27f8e37ab5" },
+          "descricao": { "S": "A aula teve problemas de áudio e não consegui acompanhar." },
+          "nota": { "N": "2" },
+          "urgencia": { "S": "CRITICA" },
+          "dataEnvio": { "S": "2026-10-22T15:00:00Z" }
+        },
+        "SequenceNumber": "1",
+        "SizeBytes": 210,
+        "StreamViewType": "NEW_IMAGE"
+      }
+    }
+  ]
+}

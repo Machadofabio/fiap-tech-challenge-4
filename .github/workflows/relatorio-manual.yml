@@ -1,0 +1,85 @@
+name: Gerar relatório manual
+
+on:
+  workflow_dispatch:
+    inputs:
+      dataInicio:
+        description: Data inicial (YYYY-MM-DD). Opcional se dataFim for informada.
+        required: false
+        type: string
+      dataFim:
+        description: Data final (YYYY-MM-DD). Opcional se dataInicio for informada.
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  gerar-relatorio:
+    name: Invocar Lambda de relatório
+    runs-on: ubuntu-latest
+    environment: dev
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Validar intervalo e preparar evento
+        id: request
+        env:
+          DATA_INICIO: ${{ inputs.dataInicio }}
+          DATA_FIM: ${{ inputs.dataFim }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$DATA_INICIO" && -z "$DATA_FIM" ]]; then
+            echo "Informe dataInicio, dataFim ou ambas." >&2
+            exit 1
+          fi
+          for value in "$DATA_INICIO" "$DATA_FIM"; do
+            if [[ -n "$value" ]] && ! [[ "$value" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+              echo "As datas devem usar o formato YYYY-MM-DD." >&2
+              exit 1
+            fi
+            if [[ -n "$value" ]] && [[ "$(date -d "$value" +%F 2>/dev/null || true)" != "$value" ]]; then
+              echo "Informe uma data válida no formato YYYY-MM-DD." >&2
+              exit 1
+            fi
+          done
+          jq -n \
+            --arg id "$RUN_ID" \
+            --arg inicio "$DATA_INICIO" \
+            --arg fim "$DATA_FIM" \
+            '{tipo:"MANUAL", geracaoId:$id}
+             + (if $inicio == "" then {} else {dataInicio:$inicio} end)
+             + (if $fim == "" then {} else {dataFim:$fim} end)' > request.json
+          echo "Arquivo de evento preparado."
+
+      - name: Obter credenciais AWS temporárias via OIDC
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Invocar Lambda
+        env:
+          FUNCTION_NAME: ${{ vars.REPORT_FUNCTION_NAME }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$FUNCTION_NAME" ]]; then
+            echo "Configure a variável REPORT_FUNCTION_NAME no ambiente GitHub dev." >&2
+            exit 1
+          fi
+          aws lambda invoke \
+            --function-name "$FUNCTION_NAME" \
+            --invocation-type RequestResponse \
+            --cli-binary-format raw-in-base64-out \
+            --payload fileb://request.json \
+            response.json > invocation-metadata.json
+          cat response.json
+          if jq -e 'has("FunctionError")' invocation-metadata.json >/dev/null; then
+            echo "A Lambda reportou erro na execução." >&2
+            exit 1
+          fi
+          jq -r '"Status: \(.status)\nPeríodo: \(.periodo)\nAvaliações: \(.quantidade // "já processada")\nS3: \(.chaveS3)"' \
+            response.json >> "$GITHUB_STEP_SUMMARY"

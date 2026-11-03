@@ -1,0 +1,9 @@
+.git
+.env
+.env.*
+!.env.example
+frontend
+**/build
+**/.gradle
+**/node_modules
+**/dist
