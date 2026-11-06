@@ -134,6 +134,6 @@ O Scheduler e a Lambda têm políticas de tentativas separadas. Falhas ao entreg
 
 ## Publicação na AWS
 
-O workflow [Deploy AWS](.github/workflows/deploy-aws.yml) compila as Lambdas e usa `sam deploy` para criar ou atualizar a stack definida em `template.yaml`; depois publica o frontend no S3 e CloudFront da stack. Ele roda em push para `main` ou pode ser iniciado manualmente em **Actions → Deploy AWS → Run workflow**.
+O workflow [Deploy AWS and GitHub Pages](.github/workflows/deploy-aws.yml) compila as Lambdas e usa `sam deploy` para criar ou atualizar o backend definido em `template.yaml`. Depois compila o frontend Vite com a URL da API e publica no GitHub Pages por HTTPS. Ele roda em push para `main` ou pode ser iniciado manualmente em **Actions → Deploy AWS and GitHub Pages → Run workflow**. Em **Settings → Pages**, configure **Source: GitHub Actions**.
 
 Como os recursos existentes foram criados manualmente, eles não serão adotados automaticamente pela stack. Recursos com nomes iguais aos do template podem causar conflito; outros podem ser criados em duplicidade. O passo a passo de OIDC, variáveis do GitHub e essa observação estão em [`docs/infra/github-actions-deploy.md`](docs/infra/github-actions-deploy.md). O workflow usa credenciais temporárias via OIDC; não precisa de access key nem secret key.

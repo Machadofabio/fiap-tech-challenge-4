@@ -28,6 +28,10 @@ Parameters:
     Type: String
     Default: cron(0 8 ? * MON *)
     Description: Agendamento semanal do relatório (EventBridge Scheduler).
+  FrontendOrigin:
+    Type: String
+    Default: https://machadofabio.github.io
+    Description: Origem HTTPS do frontend no GitHub Pages, usada pelo CORS.
 
 Resources:
   AvaliacoesTable:
@@ -105,93 +109,13 @@ Resources:
           - ServerSideEncryptionByDefault:
               SSEAlgorithm: AES256
 
-  FrontendBucket:
-    Type: AWS::S3::Bucket
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
-    Properties:
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        IgnorePublicAcls: true
-        BlockPublicPolicy: true
-        RestrictPublicBuckets: true
-      BucketEncryption:
-        ServerSideEncryptionConfiguration:
-          - ServerSideEncryptionByDefault:
-              SSEAlgorithm: AES256
-
-  FrontendOriginAccessControl:
-    Type: AWS::CloudFront::OriginAccessControl
-    Properties:
-      OriginAccessControlConfig:
-        Name: !Sub '${AWS::StackName}-frontend-oac'
-        Description: Acesso privado do CloudFront aos arquivos estáticos do frontend.
-        OriginAccessControlOriginType: s3
-        SigningBehavior: always
-        SigningProtocol: sigv4
-
-  FrontendDistribution:
-    Type: AWS::CloudFront::Distribution
-    Properties:
-      DistributionConfig:
-        Enabled: true
-        Comment: !Sub '${AWS::StackName} frontend'
-        DefaultRootObject: index.html
-        HttpVersion: http2
-        PriceClass: PriceClass_100
-        Origins:
-          - Id: StaticFrontendOrigin
-            DomainName: !GetAtt FrontendBucket.RegionalDomainName
-            OriginAccessControlId: !GetAtt FrontendOriginAccessControl.Id
-            S3OriginConfig:
-              OriginAccessIdentity: ''
-        DefaultCacheBehavior:
-          TargetOriginId: StaticFrontendOrigin
-          ViewerProtocolPolicy: redirect-to-https
-          AllowedMethods:
-            - GET
-            - HEAD
-          CachedMethods:
-            - GET
-            - HEAD
-          Compress: true
-          ForwardedValues:
-            QueryString: false
-            Cookies:
-              Forward: none
-          MinTTL: 0
-          DefaultTTL: 300
-          MaxTTL: 86400
-        ViewerCertificate:
-          CloudFrontDefaultCertificate: true
-        Restrictions:
-          GeoRestriction:
-            RestrictionType: none
-
-  FrontendBucketPolicy:
-    Type: AWS::S3::BucketPolicy
-    Properties:
-      Bucket: !Ref FrontendBucket
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Sid: AllowCloudFrontReadOnly
-            Effect: Allow
-            Principal:
-              Service: cloudfront.amazonaws.com
-            Action: s3:GetObject
-            Resource: !Sub '${FrontendBucket.Arn}/*'
-            Condition:
-              StringEquals:
-                AWS:SourceArn: !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${FrontendDistribution}'
-
   EvaluationsHttpApi:
     Type: AWS::Serverless::HttpApi
     Properties:
       StageName: '$default'
       CorsConfiguration:
         AllowOrigins:
-          - !Sub 'https://${FrontendDistribution.DomainName}'
+          - !Ref FrontendOrigin
         AllowHeaders:
           - Content-Type
           - Idempotency-Key
@@ -240,7 +164,7 @@ Resources:
         Variables:
           AWS_REGION: !Ref AWS::Region
           AVALIACOES_TABLE: !Ref AvaliacoesTable
-          CORS_ORIGINS: !Sub 'https://${FrontendDistribution.DomainName}'
+          CORS_ORIGINS: !Ref FrontendOrigin
       Events:
         SubmitEvaluation:
           Type: HttpApi
@@ -445,14 +369,6 @@ Outputs:
   EvaluationsApiUrl:
     Description: URL HTTPS da API pública de avaliações.
     Value: !Sub 'https://${EvaluationsHttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}'
-  FrontendBucketName:
-    Description: Bucket privado que recebe os arquivos gerados pelo build do frontend.
-    Value: !Ref FrontendBucket
-  FrontendDistributionId:
-    Value: !Ref FrontendDistribution
-  FrontendUrl:
-    Description: URL HTTPS do frontend entregue pelo CloudFront.
-    Value: !Sub 'https://${FrontendDistribution.DomainName}'
   NotificationFailureQueueUrl:
     Description: Fila com metadados de invocações do Stream descartadas após esgotar tentativas.
     Value: !Ref NotificationFailureQueue

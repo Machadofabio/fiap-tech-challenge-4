@@ -1,40 +1,47 @@
-# Deploy pela GitHub Actions com SAM
+# Deploy com GitHub Actions
 
-O workflow [deploy-aws.yml](../../.github/workflows/deploy-aws.yml) compila as três funções Java, publica a stack do [template.yaml](../../template.yaml) com `sam deploy` e publica o frontend no bucket S3 da stack. Ele roda em push para `main` ou manualmente em **Actions → Deploy AWS → Run workflow**.
+O workflow [deploy-aws.yml](../../.github/workflows/deploy-aws.yml) compila e publica o backend na AWS com SAM e publica o frontend Vite no GitHub Pages. Ele roda em push para `main` ou pode ser iniciado manualmente em **Actions → Deploy AWS and GitHub Pages → Run workflow**.
 
-## Atenção: recursos criados manualmente
+O template AWS não cria recursos de hospedagem do frontend nem distribuição CloudFront. O frontend é servido pelo GitHub Pages em HTTPS; a API e os serviços backend continuam na AWS.
 
-`sam deploy` não conecta automaticamente recursos criados manualmente a uma stack CloudFormation. O template tenta criar a infraestrutura descrita nele. Por exemplo, ele declara tabelas DynamoDB e filas SQS com nomes fixos e Lambdas com nomes definidos. Se já existirem recursos com esses nomes, o primeiro deploy pode falhar por conflito; outros recursos sem nome fixo podem ser criados duplicados.
+## Configurar GitHub Pages
 
-Para gerenciar os recursos atuais com CloudFormation, será necessário importar os tipos compatíveis para uma stack ou adaptar o template para usar recursos existentes. Não apague tabelas ou buckets que contenham dados sem decidir antes como preservá-los. O workflow não faz essa migração; ele implanta o template como uma stack nova ou atualiza a stack já associada a esse template.
+No repositório, abra **Settings → Pages** e selecione **GitHub Actions** como origem do build e deploy. Para repositórios públicos, o GitHub Pages está disponível no GitHub Free. A URL deste repositório será `https://machadofabio.github.io/fiap-tech-challenge-4/`.
 
-## Configurar OIDC e a role de deploy na AWS
+O template define o parâmetro `FrontendOrigin` como `https://machadofabio.github.io`, que é a origem liberada no CORS da API. Se o proprietário ou endereço do Pages mudar, atualize o valor padrão desse parâmetro em [template.yaml](../../template.yaml).
 
-1. Em IAM → Identity providers, crie um provedor OpenID Connect com URL `https://token.actions.githubusercontent.com` e audiência `sts.amazonaws.com`. Se já existir, reutilize-o.
-2. Crie uma role IAM, por exemplo `GitHubActionsDeployRole`. Use [github-actions-deploy-trust-policy.json](github-actions-deploy-trust-policy.json) como política de confiança e substitua `ACCOUNT_ID` pelo ID da conta AWS.
-3. Anexe [github-actions-deploy-policy.json](github-actions-deploy-policy.json) como política de permissões e substitua `ACCOUNT_ID`. Ela permite que SAM/CloudFormation crie e atualize os recursos do template e que o workflow publique o frontend. As ações de provisionamento têm escopo amplo (`*`); use uma conta de desenvolvimento dedicada e restrinja as permissões conforme a infraestrutura amadurecer.
-4. Informe uma região para a stack e configure as identidades de remetente e destinatário do SES. O remetente precisa estar verificado; se o SES estiver no sandbox, o destinatário também precisa estar autorizado.
+## Configurar OIDC e a role AWS
 
-A trust policy restringe a role ao repositório `Machadofabio/fiap-tech-challenge-4` e ao ambiente GitHub `dev`. Em **Settings → Environments**, crie `dev` e restrinja deployments à branch `main`. Se o repositório ou ambiente tiver outro nome, atualize a condição `sub` na trust policy.
+1. Em IAM → Identity providers, crie ou reutilize o provedor OIDC com URL `https://token.actions.githubusercontent.com` e audiência `sts.amazonaws.com`.
+2. Crie a role de deploy, por exemplo `GitHubActionsDeployRole`, usando [github-actions-deploy-trust-policy.json](github-actions-deploy-trust-policy.json) como política de confiança. A trust policy deve restringir o acesso ao repositório e ao ambiente GitHub `dev`.
+3. Anexe [github-actions-deploy-policy.json](github-actions-deploy-policy.json) à role como política de permissões. Ela permite o deploy da stack backend e dos artefatos SAM. O frontend não é enviado para AWS.
+4. Em **Settings → Environments**, configure `dev` e restrinja deploys à branch `main`.
 
-## Configurar variáveis no GitHub
+## Variáveis do ambiente `dev`
 
 Em **Settings → Environments → dev → Environment variables**, configure:
 
 | Variável | Valor |
 | --- | --- |
 | `AWS_DEPLOY_ROLE_ARN` | ARN da role `GitHubActionsDeployRole` |
-| `AWS_REGION` | Região da stack, por exemplo `us-east-1` |
+| `AWS_REGION` | Região AWS da stack, por exemplo `sa-east-1` |
 | `AWS_STACK_NAME` | Nome da stack CloudFormation, por exemplo `fiap-tech-challenge-4-dev` |
 | `ADMIN_EMAIL` | Destinatário de alertas e relatórios |
 | `SES_FROM_EMAIL` | Remetente verificado no SES |
 
-Esses valores não são chaves de acesso. Não crie `AWS_ACCESS_KEY_ID` nem `AWS_SECRET_ACCESS_KEY` no GitHub. O OIDC entrega credenciais temporárias ao workflow.
+Esses valores não são chaves de acesso. Não crie `AWS_ACCESS_KEY_ID` nem `AWS_SECRET_ACCESS_KEY` no GitHub. O OIDC entrega credenciais temporárias ao job de backend.
 
 ## Etapas do workflow
 
 1. Compila as três funções Quarkus com Gradle.
-2. Executa `sam deploy`, que cria ou atualiza a stack e usa um bucket para artefatos SAM.
-3. Busca os outputs da stack, compila o frontend com a URL da API, sincroniza os arquivos no bucket S3 e invalida o cache CloudFront.
+2. Executa `sam deploy` para criar ou atualizar a stack backend e o bucket de artefatos SAM.
+3. Lê o output `EvaluationsApiUrl` da stack.
+4. Compila o frontend com a URL da API e a base `/fiap-tech-challenge-4/`, depois publica o build no GitHub Pages.
 
-O primeiro deploy da distribuição CloudFront pode levar vários minutos. As URLs aparecem nos outputs `EvaluationsApiUrl` e `FrontendUrl` da stack.
+O job de frontend usa o ambiente GitHub `github-pages`, separado do ambiente `dev` usado para assumir a role AWS.
+
+## Recursos AWS criados manualmente
+
+`sam deploy` não conecta automaticamente recursos criados manualmente a uma stack CloudFormation. O template tenta criar a infraestrutura backend declarada nele. Recursos com nomes iguais aos que já existem podem causar conflito; outros podem ser criados em duplicidade.
+
+Para gerenciar os recursos atuais com CloudFormation, será necessário importar tipos compatíveis para uma stack ou adaptar o template para usar recursos existentes. Não apague tabelas ou buckets que contenham dados sem decidir como preservá-los.
