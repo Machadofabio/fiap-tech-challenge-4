@@ -5,6 +5,7 @@ import jakarta.enterprise.inject.Disposes;
 import jakarta.enterprise.inject.Produces;
 import jakarta.inject.Singleton;
 import java.net.URI;
+import java.util.Optional;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
@@ -17,7 +18,7 @@ public class DynamoDbClientProducer {
     String region;
 
     @ConfigProperty(name = "app.dynamodb.endpoint")
-    String endpoint;
+    Optional<String> endpoint;
 
     @Produces
     @Singleton
@@ -25,9 +26,8 @@ public class DynamoDbClientProducer {
         DynamoDbClientBuilder builder = DynamoDbClient.builder()
                 .region(Region.of(region))
                 .credentialsProvider(DefaultCredentialsProvider.create());
-        if (endpoint != null && !endpoint.isBlank()) {
-            builder.endpointOverride(URI.create(endpoint));
-        }
+        endpoint.filter(value -> !value.isBlank())
+                .ifPresent(value -> builder.endpointOverride(URI.create(value)));
         return builder.build();
     }
 

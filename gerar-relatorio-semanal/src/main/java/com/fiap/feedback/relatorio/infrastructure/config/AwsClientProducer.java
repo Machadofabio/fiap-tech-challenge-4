@@ -5,6 +5,7 @@ import jakarta.enterprise.inject.Disposes;
 import jakarta.enterprise.inject.Produces;
 import jakarta.inject.Singleton;
 import java.net.URI;
+import java.util.Optional;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
@@ -16,15 +17,16 @@ import software.amazon.awssdk.services.ses.SesClient;
 @ApplicationScoped
 public class AwsClientProducer {
     @ConfigProperty(name = "app.aws.region") String region;
-    @ConfigProperty(name = "app.dynamodb.endpoint") String dynamoEndpoint;
-    @ConfigProperty(name = "app.s3.endpoint") String s3Endpoint;
-    @ConfigProperty(name = "app.ses.endpoint") String sesEndpoint;
+    @ConfigProperty(name = "app.dynamodb.endpoint") Optional<String> dynamoEndpoint;
+    @ConfigProperty(name = "app.s3.endpoint") Optional<String> s3Endpoint;
+    @ConfigProperty(name = "app.ses.endpoint") Optional<String> sesEndpoint;
 
     @Produces @Singleton
     DynamoDbClient dynamoDbClient() {
         var builder = DynamoDbClient.builder().region(Region.of(region))
                 .credentialsProvider(DefaultCredentialsProvider.create());
-        if (dynamoEndpoint != null && !dynamoEndpoint.isBlank()) builder.endpointOverride(URI.create(dynamoEndpoint));
+        dynamoEndpoint.filter(value -> !value.isBlank())
+                .ifPresent(value -> builder.endpointOverride(URI.create(value)));
         return builder.build();
     }
 
@@ -35,7 +37,8 @@ public class AwsClientProducer {
         var builder = S3Client.builder().region(Region.of(region))
                 .credentialsProvider(DefaultCredentialsProvider.create())
                 .serviceConfiguration(S3Configuration.builder().pathStyleAccessEnabled(true).build());
-        if (s3Endpoint != null && !s3Endpoint.isBlank()) builder.endpointOverride(URI.create(s3Endpoint));
+        s3Endpoint.filter(value -> !value.isBlank())
+                .ifPresent(value -> builder.endpointOverride(URI.create(value)));
         return builder.build();
     }
 
@@ -45,7 +48,8 @@ public class AwsClientProducer {
     SesClient sesClient() {
         var builder = SesClient.builder().region(Region.of(region))
                 .credentialsProvider(DefaultCredentialsProvider.create());
-        if (sesEndpoint != null && !sesEndpoint.isBlank()) builder.endpointOverride(URI.create(sesEndpoint));
+        sesEndpoint.filter(value -> !value.isBlank())
+                .ifPresent(value -> builder.endpointOverride(URI.create(value)));
         return builder.build();
     }
 

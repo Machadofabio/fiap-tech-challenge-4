@@ -5,6 +5,7 @@ import jakarta.enterprise.inject.Disposes;
 import jakarta.enterprise.inject.Produces;
 import jakarta.inject.Singleton;
 import java.net.URI;
+import java.util.Optional;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
@@ -19,10 +20,10 @@ public class AwsClientProducer {
     String region;
 
     @ConfigProperty(name = "app.dynamodb.endpoint")
-    String dynamoEndpoint;
+    Optional<String> dynamoEndpoint;
 
     @ConfigProperty(name = "app.ses.endpoint")
-    String sesEndpoint;
+    Optional<String> sesEndpoint;
 
     @Produces
     @Singleton
@@ -30,7 +31,8 @@ public class AwsClientProducer {
         DynamoDbClientBuilder builder = DynamoDbClient.builder()
                 .region(Region.of(region))
                 .credentialsProvider(DefaultCredentialsProvider.create());
-        if (dynamoEndpoint != null && !dynamoEndpoint.isBlank()) builder.endpointOverride(URI.create(dynamoEndpoint));
+        dynamoEndpoint.filter(value -> !value.isBlank())
+                .ifPresent(value -> builder.endpointOverride(URI.create(value)));
         return builder.build();
     }
 
@@ -44,7 +46,8 @@ public class AwsClientProducer {
         SesClientBuilder builder = SesClient.builder()
                 .region(Region.of(region))
                 .credentialsProvider(DefaultCredentialsProvider.create());
-        if (sesEndpoint != null && !sesEndpoint.isBlank()) builder.endpointOverride(URI.create(sesEndpoint));
+        sesEndpoint.filter(value -> !value.isBlank())
+                .ifPresent(value -> builder.endpointOverride(URI.create(value)));
         return builder.build();
     }
 
