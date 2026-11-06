@@ -162,7 +162,6 @@ Resources:
       Role: !GetAtt ReceivingEvaluationExecutionRole.Arn
       Environment:
         Variables:
-          AWS_REGION: !Ref AWS::Region
           AVALIACOES_TABLE: !Ref AvaliacoesTable
           CORS_ORIGINS: !Ref FrontendOrigin
       Events:
@@ -230,7 +229,6 @@ Resources:
       Role: !GetAtt NotificationExecutionRole.Arn
       Environment:
         Variables:
-          AWS_REGION: !Ref AWS::Region
           NOTIFICATION_TABLE: !Ref NotificationStateTable
           SES_FROM_EMAIL: !Ref SesFromEmail
           ADMIN_EMAIL: !Ref AdminEmail
@@ -326,7 +324,6 @@ Resources:
       Role: !GetAtt ReportExecutionRole.Arn
       Environment:
         Variables:
-          AWS_REGION: !Ref AWS::Region
           AVALIACOES_TABLE: !Ref AvaliacoesTable
           REPORT_GENERATION_TABLE: !Ref ReportGenerationStateTable
           REPORTS_BUCKET: !Ref ReportsBucket
