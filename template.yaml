@@ -15,9 +15,11 @@ Parameters:
   NotificationStateTableName:
     Type: String
     Default: notificacoes-avaliacoes
+    Description: Nome da tabela DynamoDB existente que guarda o estado dos alertas.
   ReportGenerationTableName:
     Type: String
     Default: geracoes-relatorios
+    Description: Nome da tabela DynamoDB existente que controla a geração dos relatórios.
   FailureQueueRetentionSeconds:
     Type: Number
     Default: 1209600
@@ -48,20 +50,6 @@ Resources:
       StreamSpecification:
         StreamViewType: NEW_IMAGE
 
-  NotificationStateTable:
-    Type: AWS::DynamoDB::Table
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
-    Properties:
-      TableName: !Ref NotificationStateTableName
-      BillingMode: PAY_PER_REQUEST
-      AttributeDefinitions:
-        - AttributeName: eventId
-          AttributeType: S
-      KeySchema:
-        - AttributeName: eventId
-          KeyType: HASH
-
   NotificationFailureQueue:
     Type: AWS::SQS::Queue
     Properties:
@@ -79,20 +67,6 @@ Resources:
     Properties:
       QueueName: gerar-relatorio-execucao-falhas
       MessageRetentionPeriod: !Ref FailureQueueRetentionSeconds
-
-  ReportGenerationStateTable:
-    Type: AWS::DynamoDB::Table
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
-    Properties:
-      TableName: !Ref ReportGenerationTableName
-      BillingMode: PAY_PER_REQUEST
-      AttributeDefinitions:
-        - AttributeName: generationId
-          AttributeType: S
-      KeySchema:
-        - AttributeName: generationId
-          KeyType: HASH
 
   ReportsBucket:
     Type: AWS::S3::Bucket
@@ -207,7 +181,7 @@ Resources:
                   - dynamodb:PutItem
                   - dynamodb:UpdateItem
                   - dynamodb:DeleteItem
-                Resource: !GetAtt NotificationStateTable.Arn
+                Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${NotificationStateTableName}
               - Effect: Allow
                 Action: ses:SendEmail
                 Resource: !Sub arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${SesFromEmail}
@@ -229,7 +203,7 @@ Resources:
       Role: !GetAtt NotificationExecutionRole.Arn
       Environment:
         Variables:
-          NOTIFICATION_TABLE: !Ref NotificationStateTable
+          NOTIFICATION_TABLE: !Ref NotificationStateTableName
           SES_FROM_EMAIL: !Ref SesFromEmail
           ADMIN_EMAIL: !Ref AdminEmail
           ALERT_PROCESSING_LEASE_SECONDS: '300'
@@ -276,7 +250,7 @@ Resources:
                   - dynamodb:GetItem
                   - dynamodb:PutItem
                   - dynamodb:UpdateItem
-                Resource: !GetAtt ReportGenerationStateTable.Arn
+                Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ReportGenerationTableName}
               - Effect: Allow
                 Action:
                   - s3:PutObject
@@ -325,7 +299,7 @@ Resources:
       Environment:
         Variables:
           AVALIACOES_TABLE: !Ref AvaliacoesTable
-          REPORT_GENERATION_TABLE: !Ref ReportGenerationStateTable
+          REPORT_GENERATION_TABLE: !Ref ReportGenerationTableName
           REPORTS_BUCKET: !Ref ReportsBucket
           SES_FROM_EMAIL: !Ref SesFromEmail
           ADMIN_EMAIL: !Ref AdminEmail

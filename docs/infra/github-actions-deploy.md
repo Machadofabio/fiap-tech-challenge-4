@@ -42,6 +42,6 @@ O job de frontend usa o ambiente GitHub `github-pages`, separado do ambiente `de
 
 ## Recursos AWS criados manualmente
 
-`sam deploy` não conecta automaticamente recursos criados manualmente a uma stack CloudFormation. O template tenta criar a infraestrutura backend declarada nele. Recursos com nomes iguais aos que já existem podem causar conflito; outros podem ser criados em duplicidade.
+`sam deploy` não conecta automaticamente recursos criados manualmente a uma stack CloudFormation. As tabelas `notificacoes-avaliacoes` e `geracoes-relatorios` são tratadas como recursos externos: o template usa os nomes informados em `NotificationStateTableName` e `ReportGenerationTableName`, mas não cria nem administra essas tabelas. Elas precisam ter, respectivamente, as chaves de partição `eventId` e `generationId` do tipo string. Outros recursos backend com nomes iguais aos já existentes podem causar conflito ou ser criados em duplicidade.
 
 Para gerenciar os recursos atuais com CloudFormation, será necessário importar tipos compatíveis para uma stack ou adaptar o template para usar recursos existentes. Não apague tabelas ou buckets que contenham dados sem decidir como preservá-los.
