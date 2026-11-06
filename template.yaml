@@ -293,7 +293,7 @@ Resources:
       Runtime: java25
       Architectures:
         - x86_64
-      MemorySize: 1024
+      MemorySize: 512
       Timeout: 180
       Role: !GetAtt ReportExecutionRole.Arn
       Environment:
