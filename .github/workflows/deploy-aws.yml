@@ -25,6 +25,7 @@ jobs:
       AWS_REGION: ${{ vars.AWS_REGION }}
       AWS_STACK_NAME: ${{ vars.AWS_STACK_NAME }}
       AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+      SAM_ARTIFACT_BUCKET: ${{ vars.SAM_ARTIFACT_BUCKET }}
       ADMIN_EMAIL: ${{ vars.ADMIN_EMAIL }}
       SES_FROM_EMAIL: ${{ vars.SES_FROM_EMAIL }}
 
@@ -65,6 +66,41 @@ jobs:
           role-session-name: github-actions-${{ github.run_id }}
           aws-region: ${{ vars.AWS_REGION }}
 
+      - name: Ensure SAM artifact bucket exists
+        id: sam-artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          account_id="$(aws sts get-caller-identity --query Account --output text)"
+          bucket="${SAM_ARTIFACT_BUCKET:-fiap-tech-challenge-4-sam-artifacts-${account_id}-${AWS_REGION}}"
+
+          if aws s3api head-bucket --bucket "$bucket" >/dev/null 2>&1; then
+            echo "Reusing SAM artifact bucket: $bucket"
+          else
+            echo "Creating SAM artifact bucket: $bucket"
+            if [[ "$AWS_REGION" == "us-east-1" ]]; then
+              aws s3api create-bucket --bucket "$bucket" --region "$AWS_REGION"
+            else
+              aws s3api create-bucket \
+                --bucket "$bucket" \
+                --region "$AWS_REGION" \
+                --create-bucket-configuration "LocationConstraint=$AWS_REGION"
+            fi
+          fi
+
+          bucket_region="$(aws s3api get-bucket-location \
+            --bucket "$bucket" \
+            --query LocationConstraint \
+            --output text)"
+          if [[ "$bucket_region" == "None" || "$bucket_region" == "null" ]]; then
+            bucket_region="us-east-1"
+          fi
+          if [[ "$bucket_region" != "$AWS_REGION" ]]; then
+            echo "SAM artifact bucket $bucket is in $bucket_region, expected $AWS_REGION." >&2
+            exit 1
+          fi
+          echo "bucket=$bucket" >> "$GITHUB_OUTPUT"
+
       - name: Build Lambda packages
         run: |
           ./gradlew --no-daemon \
@@ -78,7 +114,7 @@ jobs:
             --template-file template.yaml \
             --stack-name "$AWS_STACK_NAME" \
             --region "$AWS_REGION" \
-            --resolve-s3 \
+            --s3-bucket "${{ steps.sam-artifacts.outputs.bucket }}" \
             --capabilities CAPABILITY_IAM \
             --no-confirm-changeset \
             --no-fail-on-empty-changeset \

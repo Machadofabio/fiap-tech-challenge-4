@@ -28,13 +28,14 @@ Em **Settings → Environments → dev → Environment variables**, configure:
 | `AWS_STACK_NAME` | Nome da stack CloudFormation, por exemplo `fiap-tech-challenge-4-dev` |
 | `ADMIN_EMAIL` | Destinatário de alertas e relatórios |
 | `SES_FROM_EMAIL` | Remetente verificado no SES |
+| `SAM_ARTIFACT_BUCKET` | Opcional: bucket S3 já existente, na mesma região, para armazenar os pacotes das Lambdas |
 
 Esses valores não são chaves de acesso. Não crie `AWS_ACCESS_KEY_ID` nem `AWS_SECRET_ACCESS_KEY` no GitHub. O OIDC entrega credenciais temporárias ao job de backend.
 
 ## Etapas do workflow
 
 1. Compila as três funções Quarkus com Gradle.
-2. Executa `sam deploy` para criar ou atualizar a stack backend e o bucket de artefatos SAM.
+2. Reutiliza o bucket indicado em `SAM_ARTIFACT_BUCKET`, se configurado. Caso contrário, usa `fiap-tech-challenge-4-sam-artifacts-<ID-da-conta>-<região>`. O workflow cria esse bucket se estiver ausente e o passa explicitamente ao `sam deploy`; ele fica separado da stack e é reutilizado nos próximos deploys.
 3. Lê o output `EvaluationsApiUrl` da stack.
 4. Compila o frontend com a URL da API e a base `/fiap-tech-challenge-4/`, depois publica o build no GitHub Pages.
 
@@ -52,6 +53,6 @@ Um recurso customizado verifica se as três tabelas existem na região da stack.
 
 Se a chave ou o requisito de Streams não corresponder, o deploy falha com uma mensagem indicando a configuração esperada. A tabela `avaliacoes` já criada e gerenciada pela versão anterior do template é preservada durante a migração para o recurso customizado. As três tabelas também são preservadas quando a stack é removida, para proteger os registros existentes.
 
-Nomes de tabelas DynamoDB são únicos por conta e região. Uma tabela com o mesmo nome em outra região não é detectada; o recurso customizado criará uma tabela na região da stack. `sam deploy` não importa automaticamente outros recursos criados manualmente. Recursos diferentes dessas três tabelas, com nomes fixos iguais aos já existentes, ainda podem causar conflito ou ser criados em duplicidade.
+Nomes de tabelas DynamoDB são únicos por conta e região. Uma tabela com o mesmo nome em outra região não é detectada; o recurso customizado criará uma tabela na região da stack. `sam deploy` não importa automaticamente outros recursos criados manualmente. Recursos diferentes dessas três tabelas, com nomes fixos iguais aos já existentes, ainda podem causar conflito. Para reutilizá-los, é necessário importar recursos compatíveis para a stack CloudFormation ou alterar o template para apontar explicitamente para eles; não há uma opção geral de “ignorar tudo que já existe”.
 
 Não apague tabelas ou buckets que contenham dados sem decidir como preservá-los.
