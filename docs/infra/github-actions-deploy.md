@@ -43,7 +43,7 @@ O job de frontend usa o ambiente GitHub `github-pages`, separado do ambiente `de
 
 ## Tabelas DynamoDB
 
-Um recurso customizado verifica se as três tabelas existem na região da stack. Se faltarem, cria-as em modo sob demanda; se já existirem, reutiliza-as e valida a estrutura:
+`avaliacoes` continua como recurso nativo `AWS::DynamoDB::Table` da stack; esse tipo foi mantido para que o CloudFormation atualize a tabela existente sem tentar trocar o tipo do recurso. Ela é protegida contra exclusão ou substituição e usa Streams `NEW_IMAGE`. Para `notificacoes-avaliacoes` e `geracoes-relatorios`, um recurso customizado verifica se as tabelas existem na região da stack. Se faltarem, cria-as em modo sob demanda; se já existirem, reutiliza-as e valida a estrutura:
 
 | Tabela | Chave de partição | Requisito adicional |
 | --- | --- | --- |
@@ -51,7 +51,7 @@ Um recurso customizado verifica se as três tabelas existem na região da stack.
 | `notificacoes-avaliacoes` | `eventId` (String) | — |
 | `geracoes-relatorios` | `generationId` (String) | — |
 
-Se a chave ou o requisito de Streams não corresponder, o deploy falha com uma mensagem indicando a configuração esperada. A tabela `avaliacoes` já criada e gerenciada pela versão anterior do template é preservada durante a migração para o recurso customizado. As três tabelas também são preservadas quando a stack é removida, para proteger os registros existentes.
+Nas duas tabelas verificadas pelo recurso customizado, uma chave incompatível faz o deploy falhar com uma mensagem indicando a configuração esperada. A estrutura de `avaliacoes` é declarada diretamente no recurso nativo do CloudFormation. As três tabelas são preservadas quando a stack é removida, para proteger os registros existentes. Se `avaliacoes` existir fora da stack e não tiver sido importada, o recurso nativo não consegue adotá-la automaticamente; é necessário importá-la na stack ou usar outro nome.
 
 Nomes de tabelas DynamoDB são únicos por conta e região. Uma tabela com o mesmo nome em outra região não é detectada; o recurso customizado criará uma tabela na região da stack. `sam deploy` não importa automaticamente outros recursos criados manualmente. Recursos diferentes dessas três tabelas, com nomes fixos iguais aos já existentes, ainda podem causar conflito. Para reutilizá-los, é necessário importar recursos compatíveis para a stack CloudFormation ou alterar o template para apontar explicitamente para eles; não há uma opção geral de “ignorar tudo que já existe”.
 

@@ -38,15 +38,20 @@ Parameters:
 
 Resources:
   AvaliacoesTable:
-    Type: Custom::EnsureDynamoDBTable
+    Type: AWS::DynamoDB::Table
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
-      ServiceToken: !GetAtt EnsureDynamoDBTablesFunction.Arn
-      ServiceTimeout: 360
       TableName: !Ref AvaliacoesTableName
-      PartitionKeyName: id
-      StreamViewType: NEW_IMAGE
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      StreamSpecification:
+        StreamViewType: NEW_IMAGE
 
   EnsureDynamoDBTablesExecutionRole:
     Type: AWS::IAM::Role
@@ -70,7 +75,6 @@ Resources:
                   - dynamodb:CreateTable
                   - dynamodb:DescribeTable
                 Resource:
-                  - !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AvaliacoesTableName}
                   - !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${NotificationStateTableName}
                   - !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ReportGenerationTableName}
 
