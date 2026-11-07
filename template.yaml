@@ -15,11 +15,11 @@ Parameters:
   NotificationStateTableName:
     Type: String
     Default: notificacoes-avaliacoes
-    Description: Nome da tabela DynamoDB existente que guarda o estado dos alertas.
+    Description: Nome da tabela DynamoDB de estado dos alertas; será criada se estiver ausente.
   ReportGenerationTableName:
     Type: String
     Default: geracoes-relatorios
-    Description: Nome da tabela DynamoDB existente que controla a geração dos relatórios.
+    Description: Nome da tabela DynamoDB de estado dos relatórios; será criada se estiver ausente.
   FailureQueueRetentionSeconds:
     Type: Number
     Default: 1209600
@@ -49,6 +49,138 @@ Resources:
           KeyType: HASH
       StreamSpecification:
         StreamViewType: NEW_IMAGE
+
+  EnsureDynamoDBTablesExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: EnsureNotificationAndReportStateTables
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:CreateTable
+                  - dynamodb:DescribeTable
+                Resource:
+                  - !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${NotificationStateTableName}
+                  - !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ReportGenerationTableName}
+
+  EnsureDynamoDBTablesFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Role: !GetAtt EnsureDynamoDBTablesExecutionRole.Arn
+      Runtime: python3.12
+      Architectures:
+        - x86_64
+      MemorySize: 128
+      Timeout: 300
+      Code:
+        ZipFile: |
+          import boto3
+          import cfnresponse
+
+          dynamodb = boto3.client("dynamodb")
+
+          def ensure_table(table_name, partition_key):
+              try:
+                  dynamodb.describe_table(TableName=table_name)
+              except dynamodb.exceptions.ResourceNotFoundException:
+                  try:
+                      dynamodb.create_table(
+                          TableName=table_name,
+                          BillingMode="PAY_PER_REQUEST",
+                          AttributeDefinitions=[
+                              {"AttributeName": partition_key, "AttributeType": "S"}
+                          ],
+                          KeySchema=[
+                              {"AttributeName": partition_key, "KeyType": "HASH"}
+                          ],
+                      )
+                  except dynamodb.exceptions.ResourceInUseException:
+                      pass
+              dynamodb.get_waiter("table_exists").wait(
+                  TableName=table_name,
+                  WaiterConfig={"Delay": 5, "MaxAttempts": 48},
+              )
+              table = dynamodb.describe_table(TableName=table_name)["Table"]
+
+              key_schema = table.get("KeySchema", [])
+              if key_schema != [
+                  {"AttributeName": partition_key, "KeyType": "HASH"}
+              ]:
+                  raise ValueError(
+                      "Table %s must have only the string partition key %s"
+                      % (table_name, partition_key)
+                  )
+              attribute_types = {
+                  item["AttributeName"]: item["AttributeType"]
+                  for item in table.get("AttributeDefinitions", [])
+              }
+              if attribute_types.get(partition_key) != "S":
+                  raise ValueError(
+                      "Table %s partition key %s must have type String"
+                      % (table_name, partition_key)
+                  )
+              return table["TableArn"]
+
+          def handler(event, context):
+              properties = event.get("ResourceProperties", {})
+              table_name = properties.get("TableName", "unknown")
+              physical_id = "ensure-dynamodb-table:%s" % table_name
+
+              if event["RequestType"] == "Delete":
+                  cfnresponse.send(
+                      event, context, cfnresponse.SUCCESS, {}, physical_id
+                  )
+                  return
+
+              try:
+                  partition_key = properties["PartitionKeyName"]
+                  table_arn = ensure_table(table_name, partition_key)
+                  cfnresponse.send(
+                      event,
+                      context,
+                      cfnresponse.SUCCESS,
+                      {"TableName": table_name, "TableArn": table_arn},
+                      physical_id,
+                  )
+              except Exception as error:
+                  print("Failed to ensure DynamoDB table %s: %s" % (table_name, error))
+                  cfnresponse.send(
+                      event,
+                      context,
+                      cfnresponse.FAILED,
+                      {},
+                      physical_id,
+                      reason=str(error)[:1000],
+                  )
+
+  NotificationStateTable:
+    Type: Custom::EnsureDynamoDBTable
+    Properties:
+      ServiceToken: !GetAtt EnsureDynamoDBTablesFunction.Arn
+      ServiceTimeout: 360
+      TableName: !Ref NotificationStateTableName
+      PartitionKeyName: eventId
+
+  ReportGenerationStateTable:
+    Type: Custom::EnsureDynamoDBTable
+    Properties:
+      ServiceToken: !GetAtt EnsureDynamoDBTablesFunction.Arn
+      ServiceTimeout: 360
+      TableName: !Ref ReportGenerationTableName
+      PartitionKeyName: generationId
 
   NotificationFailureQueue:
     Type: AWS::SQS::Queue
@@ -181,7 +313,7 @@ Resources:
                   - dynamodb:PutItem
                   - dynamodb:UpdateItem
                   - dynamodb:DeleteItem
-                Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${NotificationStateTableName}
+                Resource: !GetAtt NotificationStateTable.TableArn
               - Effect: Allow
                 Action: ses:SendEmail
                 Resource: !Sub arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${SesFromEmail}
@@ -250,7 +382,7 @@ Resources:
                   - dynamodb:GetItem
                   - dynamodb:PutItem
                   - dynamodb:UpdateItem
-                Resource: !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ReportGenerationTableName}
+                Resource: !GetAtt ReportGenerationStateTable.TableArn
               - Effect: Allow
                 Action:
                   - s3:PutObject

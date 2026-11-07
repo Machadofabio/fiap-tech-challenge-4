@@ -42,6 +42,8 @@ O job de frontend usa o ambiente GitHub `github-pages`, separado do ambiente `de
 
 ## Recursos AWS criados manualmente
 
-`sam deploy` não conecta automaticamente recursos criados manualmente a uma stack CloudFormation. As tabelas `notificacoes-avaliacoes` e `geracoes-relatorios` são tratadas como recursos externos: o template usa os nomes informados em `NotificationStateTableName` e `ReportGenerationTableName`, mas não cria nem administra essas tabelas. Elas precisam ter, respectivamente, as chaves de partição `eventId` e `generationId` do tipo string. Outros recursos backend com nomes iguais aos já existentes podem causar conflito ou ser criados em duplicidade.
+O template cria `avaliacoes` como tabela CloudFormation com DynamoDB Streams. Para `notificacoes-avaliacoes` e `geracoes-relatorios`, um recurso customizado verifica se as tabelas existem na região da stack. Se faltarem, cria-as em modo sob demanda; se já existirem, reutiliza-as e valida as chaves de partição `eventId` e `generationId`, ambas do tipo String. Se a chave existente não corresponder, o deploy falha com uma mensagem indicando a chave esperada. Essas duas tabelas são preservadas quando a stack é removida para proteger o estado e os registros existentes.
 
-Para gerenciar os recursos atuais com CloudFormation, será necessário importar tipos compatíveis para uma stack ou adaptar o template para usar recursos existentes. Não apague tabelas ou buckets que contenham dados sem decidir como preservá-los.
+Nomes de tabelas DynamoDB são únicos por conta e região. Uma tabela com o mesmo nome em outra região não é detectada; o recurso customizado criará uma tabela na região da stack. `sam deploy` também não importa automaticamente outros recursos criados manualmente. Recursos com nomes fixos iguais aos já existentes podem causar conflito ou ser criados em duplicidade.
+
+Não apague tabelas ou buckets que contenham dados sem decidir como preservá-los.
