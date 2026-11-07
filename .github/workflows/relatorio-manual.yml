@@ -59,7 +59,7 @@ jobs:
         env:
           AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           AWS_REGION: ${{ vars.AWS_REGION }}
-          REPORT_FUNCTION_NAME: ${{ vars.REPORT_FUNCTION_NAME }}
+          REPORT_FUNCTION_NAME: ${{ vars.REPORT_FUNCTION_NAME || 'gerar-relatorio-semanal' }}
         run: |
           set -euo pipefail
           for name in AWS_DEPLOY_ROLE_ARN AWS_REGION REPORT_FUNCTION_NAME; do
@@ -77,13 +77,9 @@ jobs:
 
       - name: Invocar Lambda
         env:
-          FUNCTION_NAME: ${{ vars.REPORT_FUNCTION_NAME }}
+          FUNCTION_NAME: ${{ vars.REPORT_FUNCTION_NAME || 'gerar-relatorio-semanal' }}
         run: |
           set -euo pipefail
-          if [[ -z "$FUNCTION_NAME" ]]; then
-            echo "Configure a variável REPORT_FUNCTION_NAME no ambiente GitHub dev." >&2
-            exit 1
-          fi
           aws lambda invoke \
             --function-name "$FUNCTION_NAME" \
             --invocation-type RequestResponse \

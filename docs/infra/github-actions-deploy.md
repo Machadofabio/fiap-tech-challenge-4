@@ -34,7 +34,7 @@ Esses valores não são chaves de acesso. Não crie `AWS_ACCESS_KEY_ID` nem `AWS
 
 ## Disparar relatório manualmente
 
-O workflow **Gerar relatório manual** usa o mesmo ambiente `dev` e a variável `AWS_DEPLOY_ROLE_ARN`. Configure também `REPORT_FUNCTION_NAME` com `gerar-relatorio-semanal`. A role precisa confiar no OIDC do repositório e do ambiente `dev`, e permitir `lambda:InvokeFunction` nessa função. A região é lida de `AWS_REGION`.
+O workflow **Gerar relatório manual** usa o mesmo ambiente `dev` e a variável `AWS_DEPLOY_ROLE_ARN`. Por padrão, ele invoca `gerar-relatorio-semanal`; configure `REPORT_FUNCTION_NAME` somente se quiser sobrescrever esse nome. A role precisa confiar no OIDC do repositório e do ambiente `dev`, e permitir `lambda:InvokeFunction` nessa função. A região é lida de `AWS_REGION`.
 
 Depois, abra **Actions → Gerar relatório manual → Run workflow** e informe pelo menos uma das datas (`dataInicio` ou `dataFim`) no formato `YYYY-MM-DD`.
 
