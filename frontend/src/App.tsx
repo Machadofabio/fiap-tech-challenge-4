@@ -171,7 +171,7 @@ export default function App() {
             <fieldset className="rating-fieldset" disabled={isSubmitting || isRetryLocked}>
               <legend>Nota</legend><label className="rating-label" htmlFor="rating">Qual nota você dá?</label>
               <p className="rating-help" id="rating-help">A nota começa em 5. Arraste a barra ou use as setas do teclado; 0 é a menor nota e 10 é a maior.</p>
-              <div className="rating-summary"><div><output className="rating-value" id="rating-value" htmlFor="rating">Nota {rating} de 10</output><p className="rating-caption" id="rating-caption">{captions[rating]}</p></div><img className="rating-face" id="rating-face" src={`/assets/faces/carinha-nota-${rating}.svg`} alt="" width="80" height="88" aria-hidden="true" /></div>
+              <div className="rating-summary"><div><output className="rating-value" id="rating-value" htmlFor="rating">Nota {rating} de 10</output><p className="rating-caption" id="rating-caption">{captions[rating]}</p></div><img className="rating-face" id="rating-face" src={`${import.meta.env.BASE_URL}assets/faces/carinha-nota-${rating}.svg`} alt="" width="80" height="88" aria-hidden="true" /></div>
               <div className="slider-row">
                 <button className="step-button" id="decrease-rating" type="button" aria-label="Diminuir nota" onClick={() => changeRating(rating - 1)}><span aria-hidden="true">−</span></button>
                 <input ref={ratingRef} id="rating" name="nota" type="range" min="0" max="10" step="1" value={rating} required aria-valuetext={`Nota ${rating} de 10`} aria-invalid={ratingError ? "true" : undefined} aria-describedby="rating-help rating-error" onChange={(event) => changeRating(Number(event.target.value))} />
