@@ -12,6 +12,7 @@ Parameters:
   AvaliacoesTableName:
     Type: String
     Default: avaliacoes
+    Description: Nome da tabela de avaliações; deve ter chave id (String) e stream NEW_IMAGE.
   NotificationStateTableName:
     Type: String
     Default: notificacoes-avaliacoes
@@ -37,18 +38,15 @@ Parameters:
 
 Resources:
   AvaliacoesTable:
-    Type: AWS::DynamoDB::Table
+    Type: Custom::EnsureDynamoDBTable
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
+      ServiceToken: !GetAtt EnsureDynamoDBTablesFunction.Arn
+      ServiceTimeout: 360
       TableName: !Ref AvaliacoesTableName
-      BillingMode: PAY_PER_REQUEST
-      AttributeDefinitions:
-        - AttributeName: id
-          AttributeType: S
-      KeySchema:
-        - AttributeName: id
-          KeyType: HASH
-      StreamSpecification:
-        StreamViewType: NEW_IMAGE
+      PartitionKeyName: id
+      StreamViewType: NEW_IMAGE
 
   EnsureDynamoDBTablesExecutionRole:
     Type: AWS::IAM::Role
@@ -63,7 +61,7 @@ Resources:
       ManagedPolicyArns:
         - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
-        - PolicyName: EnsureNotificationAndReportStateTables
+        - PolicyName: EnsureApplicationTables
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
@@ -72,6 +70,7 @@ Resources:
                   - dynamodb:CreateTable
                   - dynamodb:DescribeTable
                 Resource:
+                  - !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AvaliacoesTableName}
                   - !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${NotificationStateTableName}
                   - !Sub arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ReportGenerationTableName}
 
@@ -92,7 +91,7 @@ Resources:
 
           dynamodb = boto3.client("dynamodb")
 
-          def ensure_table(table_name, partition_key):
+          def ensure_table(table_name, partition_key, stream_view_type):
               try:
                   dynamodb.describe_table(TableName=table_name)
               except dynamodb.exceptions.ResourceNotFoundException:
@@ -106,6 +105,13 @@ Resources:
                           KeySchema=[
                               {"AttributeName": partition_key, "KeyType": "HASH"}
                           ],
+                          **(
+                              {"StreamSpecification": {
+                                  "StreamEnabled": True,
+                                  "StreamViewType": stream_view_type,
+                              }}
+                              if stream_view_type else {}
+                          ),
                       )
                   except dynamodb.exceptions.ResourceInUseException:
                       pass
@@ -132,7 +138,21 @@ Resources:
                       "Table %s partition key %s must have type String"
                       % (table_name, partition_key)
                   )
-              return table["TableArn"]
+              stream_arn = table.get("LatestStreamArn", "")
+              if stream_view_type:
+                  stream = table.get("StreamSpecification", {})
+                  actual_stream_view = stream.get("StreamViewType")
+                  if not stream.get("StreamEnabled") or actual_stream_view != stream_view_type:
+                      raise ValueError(
+                          "Table %s must have DynamoDB Streams enabled with view type %s"
+                          % (table_name, stream_view_type)
+                      )
+                  if not stream_arn:
+                      raise ValueError(
+                          "Table %s has Streams enabled but no active stream ARN"
+                          % table_name
+                      )
+              return table["TableArn"], stream_arn
 
           def handler(event, context):
               properties = event.get("ResourceProperties", {})
@@ -147,12 +167,19 @@ Resources:
 
               try:
                   partition_key = properties["PartitionKeyName"]
-                  table_arn = ensure_table(table_name, partition_key)
+                  stream_view_type = properties.get("StreamViewType")
+                  table_arn, stream_arn = ensure_table(
+                      table_name, partition_key, stream_view_type
+                  )
                   cfnresponse.send(
                       event,
                       context,
                       cfnresponse.SUCCESS,
-                      {"TableName": table_name, "TableArn": table_arn},
+                      {
+                          "TableName": table_name,
+                          "TableArn": table_arn,
+                          "StreamArn": stream_arn,
+                      },
                       physical_id,
                   )
               except Exception as error:
@@ -173,6 +200,7 @@ Resources:
       ServiceTimeout: 360
       TableName: !Ref NotificationStateTableName
       PartitionKeyName: eventId
+    DeletionPolicy: Retain
 
   ReportGenerationStateTable:
     Type: Custom::EnsureDynamoDBTable
@@ -181,6 +209,7 @@ Resources:
       ServiceTimeout: 360
       TableName: !Ref ReportGenerationTableName
       PartitionKeyName: generationId
+    DeletionPolicy: Retain
 
   NotificationFailureQueue:
     Type: AWS::SQS::Queue
@@ -268,7 +297,7 @@ Resources:
       Role: !GetAtt ReceivingEvaluationExecutionRole.Arn
       Environment:
         Variables:
-          AVALIACOES_TABLE: !Ref AvaliacoesTable
+          AVALIACOES_TABLE: !Ref AvaliacoesTableName
           CORS_ORIGINS: !Ref FrontendOrigin
       Events:
         SubmitEvaluation:
@@ -430,7 +459,7 @@ Resources:
       Role: !GetAtt ReportExecutionRole.Arn
       Environment:
         Variables:
-          AVALIACOES_TABLE: !Ref AvaliacoesTable
+          AVALIACOES_TABLE: !Ref AvaliacoesTableName
           REPORT_GENERATION_TABLE: !Ref ReportGenerationTableName
           REPORTS_BUCKET: !Ref ReportsBucket
           SES_FROM_EMAIL: !Ref SesFromEmail

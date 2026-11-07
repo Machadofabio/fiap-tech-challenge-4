@@ -40,10 +40,18 @@ Esses valores não são chaves de acesso. Não crie `AWS_ACCESS_KEY_ID` nem `AWS
 
 O job de frontend usa o ambiente GitHub `github-pages`, separado do ambiente `dev` usado para assumir a role AWS.
 
-## Recursos AWS criados manualmente
+## Tabelas DynamoDB
 
-O template cria `avaliacoes` como tabela CloudFormation com DynamoDB Streams. Para `notificacoes-avaliacoes` e `geracoes-relatorios`, um recurso customizado verifica se as tabelas existem na região da stack. Se faltarem, cria-as em modo sob demanda; se já existirem, reutiliza-as e valida as chaves de partição `eventId` e `generationId`, ambas do tipo String. Se a chave existente não corresponder, o deploy falha com uma mensagem indicando a chave esperada. Essas duas tabelas são preservadas quando a stack é removida para proteger o estado e os registros existentes.
+Um recurso customizado verifica se as três tabelas existem na região da stack. Se faltarem, cria-as em modo sob demanda; se já existirem, reutiliza-as e valida a estrutura:
 
-Nomes de tabelas DynamoDB são únicos por conta e região. Uma tabela com o mesmo nome em outra região não é detectada; o recurso customizado criará uma tabela na região da stack. `sam deploy` também não importa automaticamente outros recursos criados manualmente. Recursos com nomes fixos iguais aos já existentes podem causar conflito ou ser criados em duplicidade.
+| Tabela | Chave de partição | Requisito adicional |
+| --- | --- | --- |
+| `avaliacoes` | `id` (String) | DynamoDB Streams habilitado com `NEW_IMAGE` |
+| `notificacoes-avaliacoes` | `eventId` (String) | — |
+| `geracoes-relatorios` | `generationId` (String) | — |
+
+Se a chave ou o requisito de Streams não corresponder, o deploy falha com uma mensagem indicando a configuração esperada. A tabela `avaliacoes` já criada e gerenciada pela versão anterior do template é preservada durante a migração para o recurso customizado. As três tabelas também são preservadas quando a stack é removida, para proteger os registros existentes.
+
+Nomes de tabelas DynamoDB são únicos por conta e região. Uma tabela com o mesmo nome em outra região não é detectada; o recurso customizado criará uma tabela na região da stack. `sam deploy` não importa automaticamente outros recursos criados manualmente. Recursos diferentes dessas três tabelas, com nomes fixos iguais aos já existentes, ainda podem causar conflito ou ser criados em duplicidade.
 
 Não apague tabelas ou buckets que contenham dados sem decidir como preservá-los.
