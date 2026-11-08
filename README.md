@@ -39,6 +39,8 @@ Na AWS, a rota pública `POST /avaliacao` usa limite global inicial de 2 requisi
 
 Para acompanhar o volume e os erros, abra API Gateway na região do ambiente, selecione a HTTP API e consulte as métricas no CloudWatch (`Count` e `4xx`). `4xx` agrega diferentes erros e não isola `429`; por isso, as métricas servem para observar tendências, não para contar com precisão somente os bloqueios. O limite é global e compartilhado entre visitantes, aplicado por melhor esforço. A validação do `429` deve ser feita na AWS com carga pequena e controlada.
 
+Para fazer um teste controlado com 20 requisições em paralelo, execute `./scripts/testar-limite-api.sh`. É possível informar outra URL e quantidade, limitada a 50 por execução: `./scripts/testar-limite-api.sh https://sua-api/avaliacao 20`. As respostas `429` aparecem no resultado. Requisições aceitas criam avaliações normais no DynamoDB.
+
 Se o navegador apresentar erro de CORS depois de uma alteração, recrie o backend:
 
 ```bash
