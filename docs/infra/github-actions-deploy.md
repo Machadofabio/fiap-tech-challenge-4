@@ -29,6 +29,8 @@ Em **Settings → Environments → dev → Environment variables**, configure:
 | `ADMIN_EMAIL` | Destinatário de alertas e relatórios |
 | `SES_FROM_EMAIL` | Remetente verificado no SES |
 | `SAM_ARTIFACT_BUCKET` | Opcional: bucket S3 já existente, na mesma região, para armazenar os pacotes das Lambdas |
+| `EVALUATION_THROTTLE_RATE_LIMIT` | Opcional: limite global por segundo de `POST /avaliacao`; padrão `2` |
+| `EVALUATION_THROTTLE_BURST_LIMIT` | Opcional: limite global de rajada de `POST /avaliacao`; padrão `5` |
 
 Esses valores não são chaves de acesso. Não crie `AWS_ACCESS_KEY_ID` nem `AWS_SECRET_ACCESS_KEY` no GitHub. O OIDC entrega credenciais temporárias ao job de backend.
 

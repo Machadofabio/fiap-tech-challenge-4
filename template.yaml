@@ -35,6 +35,16 @@ Parameters:
     Type: String
     Default: https://machadofabio.github.io
     Description: Origem HTTPS do frontend no GitHub Pages, usada pelo CORS.
+  EvaluationThrottleRateLimit:
+    Type: Number
+    Default: 2
+    MinValue: 0.1
+    Description: Limite global médio de requisições por segundo para POST /avaliacao.
+  EvaluationThrottleBurstLimit:
+    Type: Number
+    Default: 5
+    MinValue: 1
+    Description: Rajada global permitida para POST /avaliacao.
 
 Resources:
   AvaliacoesTable:
@@ -263,6 +273,10 @@ Resources:
           - POST
         AllowCredentials: false
         MaxAge: 600
+      RouteSettings:
+        "POST /avaliacao":
+          ThrottlingRateLimit: !Ref EvaluationThrottleRateLimit
+          ThrottlingBurstLimit: !Ref EvaluationThrottleBurstLimit
 
   ReceivingEvaluationExecutionRole:
     Type: AWS::IAM::Role

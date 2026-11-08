@@ -133,6 +133,12 @@ export default function App() {
         else { setError({ text: response.body.mensagem || "Confira os dados informados e tente novamente.", kind: "error" }); setFocusTarget("submit"); }
         return;
       }
+      if (response.status === 429) {
+        setIsRetryLocked(false);
+        setError({ text: "Há muitos envios no momento. Aguarde um pouco e tente novamente", kind: "error" });
+        setFocusTarget("submit");
+        return;
+      }
       setIsRetryLocked(true);
       setError({ text: response.status === 500 ? "Não foi possível concluir o envio. Tente novamente com os mesmos dados." : "Não foi possível confirmar o envio. Tente novamente com os mesmos dados.", kind: "error" });
       setFocusTarget("submit");

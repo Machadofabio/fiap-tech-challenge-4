@@ -28,6 +28,8 @@ jobs:
       SAM_ARTIFACT_BUCKET: ${{ vars.SAM_ARTIFACT_BUCKET }}
       ADMIN_EMAIL: ${{ vars.ADMIN_EMAIL }}
       SES_FROM_EMAIL: ${{ vars.SES_FROM_EMAIL }}
+      EVALUATION_THROTTLE_RATE_LIMIT: ${{ vars.EVALUATION_THROTTLE_RATE_LIMIT || '2' }}
+      EVALUATION_THROTTLE_BURST_LIMIT: ${{ vars.EVALUATION_THROTTLE_BURST_LIMIT || '5' }}
 
     outputs:
       api_url: ${{ steps.api-url.outputs.value }}
@@ -120,7 +122,9 @@ jobs:
             --no-fail-on-empty-changeset \
             --parameter-overrides \
               "AdminEmail=$ADMIN_EMAIL" \
-              "SesFromEmail=$SES_FROM_EMAIL"
+              "SesFromEmail=$SES_FROM_EMAIL" \
+              "EvaluationThrottleRateLimit=$EVALUATION_THROTTLE_RATE_LIMIT" \
+              "EvaluationThrottleBurstLimit=$EVALUATION_THROTTLE_BURST_LIMIT"
 
       - name: Read deployed API URL
         id: api-url

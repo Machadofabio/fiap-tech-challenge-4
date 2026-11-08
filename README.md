@@ -35,6 +35,10 @@ curl -X POST 'http://localhost:8080/avaliacao' \
 
 O cabeçalho `Idempotency-Key` identifica uma solicitação para evitar que uma repetição crie outra avaliação. O contrato e a especificação OpenAPI estão em [`docs/contratos`](docs/contratos/).
 
+Na AWS, a rota pública `POST /avaliacao` usa limite global inicial de 2 requisições por segundo e rajada de 5, configurados pelos parâmetros `EvaluationThrottleRateLimit` e `EvaluationThrottleBurstLimit` no template SAM. Se a API responder `429`, o formulário informa que há muitos envios no momento, mantém a descrição e a nota e permite tentar novamente manualmente. O mesmo identificador de idempotência é preservado na tentativa.
+
+Para acompanhar o volume e os erros, abra API Gateway na região do ambiente, selecione a HTTP API e consulte as métricas no CloudWatch (`Count` e `4xx`). `4xx` agrega diferentes erros e não isola `429`; por isso, as métricas servem para observar tendências, não para contar com precisão somente os bloqueios. O limite é global e compartilhado entre visitantes, aplicado por melhor esforço. A validação do `429` deve ser feita na AWS com carga pequena e controlada.
+
 Se o navegador apresentar erro de CORS depois de uma alteração, recrie o backend:
 
 ```bash
